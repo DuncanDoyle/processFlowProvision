@@ -1,6 +1,16 @@
 <project name="pfp-openshift" >
 
     <target name="openshift.provision.pfp.core" description="" >
+        <delete dir="${openshift.pfpCore.app.location}" />
+        <mkdir dir="${openshift.app.dir}" />
+        <exec executable="git" failonerror="true" >
+           <arg value="clone"/>
+           <arg value="-o"/>
+           <arg value="${openshift.domain.name}"/>
+           <arg value="${openshift.pfpCore.git.url}"/>
+           <arg value="${openshift.pfpCore.app.location}"/>
+        </exec>
+
         <!-- pfp modules are needed to support subclassing of bpm integration layer to proxy to pfpCore -->
         <antcall target="openshift.deploy.jboss.modules" >
             <param name="app.location" value="${openshift.pfpCore.app.location}"/>
@@ -24,21 +34,22 @@
             this directory will not get blown away when executing 'git push' on openshift app
         -->
         <exec executable="bash" failonerror="true" dir="." >
-           <arg value="bin/openshift.sh"/>
+           <arg value="${development.base}/bin/openshift.sh"/>
            <arg value="openshiftRsync"/>
            <arg value="-localDir=${temp.brmsWebs.dir}/${console.server.name}/*"/>
            <arg value="-sshUrl=${openshift.pfpCore.ssh.url}"/>
            <arg value="-remoteDir=${openshift.jboss.cartridge.type}/tmp/deployments/${console.server.name}"/>
         </exec> 
         <exec executable="bash" failonerror="true" dir="." >
-           <arg value="bin/openshift.sh"/>
+           <arg value="${development.base}/bin/openshift.sh"/>
            <arg value="openshiftRsync"/>
            <arg value="-localDir=${temp.brmsWebs.dir}/${console.name}/*"/>
            <arg value="-sshUrl=${openshift.pfpCore.ssh.url}"/>
            <arg value="-remoteDir=${openshift.jboss.cartridge.type}/tmp/deployments/${console.name}"/>
         </exec> 
+
         <exec executable="bash" failonerror="true" dir="." >
-           <arg value="bin/openshift.sh"/>
+           <arg value="${development.base}/bin/openshift.sh"/>
            <arg value="push"/>
            <arg value="-localAppLocation=${openshift.pfpCore.app.location}"/>
            <arg value="-domainName=${openshift.domain.name}"/>
@@ -46,6 +57,15 @@
     </target>
 
     <target name="openshift.provision.brms.webs" description="" >
+        <delete dir="${openshift.brmsWebs.app.location}" />
+        <mkdir dir="${openshift.app.dir}" />
+        <exec executable="git" failonerror="true" >
+           <arg value="clone"/>
+           <arg value="-o"/>
+           <arg value="${openshift.domain.name}"/>
+           <arg value="${openshift.brmsWebs.git.url}"/>
+           <arg value="${openshift.brmsWebs.app.location}"/>
+        </exec>
         <antcall target="openshift.deploy.jboss.modules" >
             <param name="app.location" value="${openshift.brmsWebs.app.location}"/>
         </antcall>
@@ -55,70 +75,67 @@
             <param name="dest.dir" value="${openshift.brmsWebs.app.location}/.openshift"/>
         </antcall>
         <delete file="${openshift.brmsWebs.app.location}/pom.xml" />
+        <delete file="${openshift.brmsWebs.app.location}/.openshift/markers/java7" />
+        <antcall target="addUserRoleConfigs" >
+            <param name="config.path" value="${openshift.brmsWebs.app.location}/.openshift/config"/>
+        </antcall>
         <delete dir="${temp.brmsWebs.dir}" />
         <antcall target="explode.guvnor.and.designer" />
         <!-- rsync to exploded web archives to :  ${openshift.jboss.cartridge.type}/tmp/deployments
             this directory will not get blown away when executing 'git push' on openshift app
         -->
         <exec executable="bash" failonerror="true" dir="." >
-           <arg value="bin/openshift.sh"/>
+           <arg value="${development.base}/bin/openshift.sh"/>
            <arg value="openshiftRsync"/>
            <arg value="-localDir=${temp.brmsWebs.dir}/${guvnor.name}/*"/>
            <arg value="-sshUrl=${openshift.brmsWebs.ssh.url}"/>
            <arg value="-remoteDir=${openshift.jboss.cartridge.type}/tmp/deployments/${guvnor.name}"/>
         </exec> 
         <exec executable="bash" failonerror="true" dir="." >
-           <arg value="bin/openshift.sh"/>
+           <arg value="${development.base}/bin/openshift.sh"/>
            <arg value="openshiftRsync"/>
            <arg value="-localDir=${temp.brmsWebs.dir}/${designer.name}/*"/>
            <arg value="-sshUrl=${openshift.brmsWebs.ssh.url}"/>
            <arg value="-remoteDir=${openshift.jboss.cartridge.type}/tmp/deployments/${designer.name}"/>
         </exec> 
+
         <!-- NOTE:  git push on openshift app will blow away exploded archives in app-root/repo/deployments -->
         <exec executable="bash" failonerror="true" dir="." >
-           <arg value="bin/openshift.sh"/>
+           <arg value="${development.base}/bin/openshift.sh"/>
            <arg value="push"/>
            <arg value="-localAppLocation=${openshift.brmsWebs.app.location}"/>
            <arg value="-domainName=${openshift.domain.name}"/>
         </exec> 
     </target>
 
-    <target name="openshift.refresh.jboss" >
-        <fail unless="server.ip.address" message="refresh.jboss:  need to pass 'server.ip.address' property" />
-        <fail unless="management.port" message="refresh.jboss:  need to pass 'management.port' property" />
-        <fail unless="ssh.url" message="refresh.jboss:  need to pass 'ssh.url' property" />
-        <echo message="***** refresh.jboss :  will now call the following target :  stop.jboss, start.jboss" />
+    <target name="openshift.bounce.pfpCore" description="" >
         <antcall target="openshift.stop.jboss" >
-            <param name="server.ip.address" value="${server.ip.address}"/>
-            <param name="management.port" value="${management.port}"/>
-            <param name="ssh.url" value="${ssh.url}"/>
+            <param name="ssh.url" value="${openshift.pfpCore.ssh.url}"/>
         </antcall>
         <antcall target="openshift.start.jboss" >
-            <param name="ssh.url" value="${ssh.url}"/>
+            <param name="ssh.url" value="${openshift.pfpCore.ssh.url}"/>
+        </antcall>
+    </target>
+    <target name="openshift.bounce.brmsWebs" description="" >
+        <antcall target="openshift.stop.jboss" >
+            <param name="ssh.url" value="${openshift.brmsWebs.ssh.url}"/>
+        </antcall>
+        <antcall target="openshift.start.jboss" >
+            <param name="ssh.url" value="${openshift.brmsWebs.ssh.url}"/>
         </antcall>
     </target>
 
     <target name="openshift.stop.jboss" >
-        <fail unless="management.port" message="stop.jboss:  need to pass 'management.port' property" />
         <fail unless="ssh.url" message="stop.jboss:  need to pass 'ssh.url' property" />
-        <if>    
-            <not><isset property="server.ip.address"/></not>
-            <then><property name="server.ip.address" value="${ENV.HOSTNAME}" /></then>
-        </if>   
         <exec executable="bash" failonerror="true" dir="." >
-           <arg value="bin/openshift.sh"/>
+           <arg value="${development.base}/bin/openshift.sh"/>
            <arg value="stopJboss"/>
-           <arg value="-localJbossHome=${jboss.home}"/>
-           <arg value="-serverIpAddr=${server.ip.address}"/>
-           <arg value="-port=${management.port}"/>
            <arg value="-sshUrl=${ssh.url}"/>
         </exec> 
     </target>
-
-
     <target name="openshift.start.jboss" >
         <fail unless="ssh.url" message="start.jboss:  need to pass 'ssh.url' property" />
-        <exec executable="bin/openshift.sh" failonerror="true" >
+        <exec executable="${development.base}/bin/openshift.sh" failonerror="true" >
             <arg value="startJboss"/>
             <arg value="-remoteJbossHome=${openshift.remote.jboss.home}"/>
             <arg value="-sshUrl=${ssh.url}"/>
@@ -130,7 +147,7 @@
         <fail unless="remote.deployments.dir" message="os.deploy.brms.webs:  need to pass 'remote.deployments.dir' property" />
         <antcall target="create.brms.webs" />
         <exec executable="bash" failonerror="true" dir="." >
-           <arg value="bin/openshift.sh"/>
+           <arg value="${development.base}/bin/openshift.sh"/>
            <arg value="copyFileToRemote"/>
            <arg value="-sshUrl=${ssh.url}"/>
            <arg value="-localDir=${temp.deployments.dir}"/>
@@ -138,7 +155,7 @@
            <arg value="-remoteDir=${remote.deployments.dir}"/>
         </exec> 
         <exec executable="bash" failonerror="true" dir="." >
-           <arg value="bin/openshift.sh"/>
+           <arg value="${development.base}/bin/openshift.sh"/>
            <arg value="copyFileToRemote"/>
            <arg value="-sshUrl=${ssh.url}"/>
            <arg value="-localDir=${temp.deployments.dir}"/>
@@ -155,7 +172,7 @@
             <param name="dest.dir" value="target/tmp"/>
         </antcall>
         <exec executable="bash" failonerror="true" dir="." >
-           <arg value="bin/openshift.sh"/>
+           <arg value="${development.base}/bin/openshift.sh"/>
            <arg value="refreshGuvnor"/>
            <arg value="-sshUrl=${ssh.url}"/>
            <arg value="-remoteDir=${os.data.dir}/guvnor"/>
@@ -179,7 +196,7 @@
             <else><property name="command" value="executeMysqlScript" /></else>
         </if>   
         <exec executable="bash" failonerror="true" dir="." >
-           <arg value="bin/openshift.sh"/>
+           <arg value="${development.base}/bin/openshift.sh"/>
            <arg value="${command}"/>
            <arg value="-serverIpAddr=${brmsWebs.db.ip.addr}"/>
            <arg value="-managementPort=3306"/>

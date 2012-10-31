@@ -97,12 +97,8 @@
     </target>
 
     <target name="provision.jboss.with.jdbc" >
-        <if>
-            <equals arg1="${jdbc.module.name}" arg2="mysql" />
-            <then><property name="db.script" value="mysql-config-up.cli"/></then>
-            <else><property name="db.script" value="pgsql-config-up.cli"/></else>
-        </if>
-        <antcall target="execute.cli">
+        <property name="db.script" value="${jdbc.module.name}-config-up.cli" />
+        <antcall target="cli.batch">
             <param name="cli.source.dir" value="conf/jboss"/>
             <param name="cli.to.filter.and.execute" value="${db.script}"/>
             <param name="cli.fail.on.error" value="true"/>
@@ -354,7 +350,7 @@
 
     <target name="local.deploy.jbpm.gwt.console" >
         <antcall target="explode.jbpm.gwt.console" />
-        <antcall target="install.reporting.into.jboss7" />
+        <!--antcall target="install.reporting.into.jboss7" / -->
         <jar jarfile="${console.server.zipped}" basedir="${console.server.target}" />
         <exec executable="${jboss.home}/bin/jboss-cli.sh" failonerror="true">
             <arg value="--connect"/>
@@ -533,14 +529,28 @@
                     <equals arg1="${refresh.master}" arg2="true" />
                     <then><antcall target="refresh.master" /></then>
                 </if>
+                <copy file="conf/pfp/default.session.template" tofile="${drools.session.template.path}" overwrite="true" />
                 <antcall target="hornetq-config" />
-                <antcall target="execute.cli">
+                <antcall target="cli.batch">
                     <param name="cli.source.dir" value="conf/pfp"/>
-                    <param name="cli.to.filter.and.execute" value="pfp-config-up.cli"/>
+                    <param name="cli.to.filter.and.execute" value="pfp-server-group.cli"/>
                     <param name="cli.fail.on.error" value="true"/>
                 </antcall>
+                <for list="${pfp.core.server.number.list}" param="serverNum">
+                    <sequential>
+                        <var name="pfp.core.server.id" value="pfp-core-@{serverNum}" />
+                        <math result="pfp.core.port.increment" operand1="100" operation="*" operand2="@{serverNum}" datatype="int" />
+                        <math result="pfp.core.port.offset" operand1="${pfp.core.base.port.offset}" operation="+" operand2="${pfp.core.port.increment}" datatype="int" />
+                        <math result="pfp.core.debugger.port" operand1="${pfp.core.base.debugger.port}" operation="+" operand2="${pfp.core.port.increment}" datatype="int" />
+                        <echo message="pfp.core.server.id=${pfp.core.server.id} : pfp.core.port.offset=${pfp.core.port.offset} : pfp.core.debugger.port = ${pfp.core.debugger.port}" />
+                        <antcall target="cli.batch">
+                            <param name="cli.source.dir" value="conf/pfp"/>
+                            <param name="cli.to.filter.and.execute" value="pfp-server-up.cli"/>
+                            <param name="cli.fail.on.error" value="true"/>
+                        </antcall>
+                    </sequential>
+                </for>
                 <antcall target="privateServiceTaskRepo" />
-                <antcall target="refreshGuvnor" />
             </then>
             <else>
                 <echo message="local.provision.pfp.core:  org.jboss.processFlow.provision.pfpCore = ${org.jboss.processFlow.provision.pfpCore}" />
@@ -587,8 +597,9 @@
                     <equals arg1="${refresh.master}" arg2="true" />
                     <then><antcall target="refresh.master" /></then>
                 </if>
-                <math result="pfp.core.remoting.port" operand1="${base.remoting.port}" operation="+" operand2="${pfp.core.port.offset}" datatype="int" />
-                <antcall target="execute.cli">
+                <!-- in clustered environment, needs to change to HA EJB ?  -->
+                <math result="pfp.core.remoting.port" operand1="${base.remoting.port}" operation="+" operand2="${pfp.core.base.port.offset}" datatype="int" />
+                <antcall target="cli.batch">
                     <param name="cli.source.dir" value="conf/brmsWebs"/>
                     <param name="cli.to.filter.and.execute" value="brmsWebs-config-up.cli"/>
                     <param name="cli.fail.on.error" value="true"/>

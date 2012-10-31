@@ -9,7 +9,7 @@
     <property file="${development.base}/build.properties" />
 
     <!-- now using for the use of 'var' tasks in subprojects where MUTABLE properties would be nice -->
-    <taskdef resource="net/sf/antcontrib/antcontrib.properties">
+    <taskdef resource="net/sf/antcontrib/antlib.xml">
         <classpath>
             <pathelement location="${development.base}/lib/ant/ant-contrib-1.0b3.jar"/>
         </classpath>
@@ -36,7 +36,7 @@
             <equals arg1="${upstream.jbpm5.drools.libs.type}" arg2="COMMUNITY_SOURCE" />
                 <then>
                     <available file="${jbpm.source.dir}/jbpm-distribution/target/jbpm-${jBPM.version}-pre-bin/lib" property="jbpm5CommunitySourceExists" />
-                    <fail unless="jbpm5CommunitySourceExists" message="no compiled jbpm5/drools libraries at: ${jbpm.source.dir}/jbpm-distribution/target/jbpm-${jBPM.version}-pre-bin/lib.  Please review ${ENV.PFP_HOME}/doc/DEVELOPER_GUIDE.txt" />
+                    <fail unless="jbpm5CommunitySourceExists" message="no compiled jbpm5/drools libraries at: ${jbpm.source.dir}/jbpm-distribution/target/jbpm-${jBPM.version}-pre-bin/lib.  Please review ${development.base}/doc/DEVELOPER_GUIDE.txt" />
 
                     <path id="classpath">
                     <path refid="initial.classpath" />
@@ -58,16 +58,20 @@
         </if>
         <if>
             <equals arg1="${upstream.jbpm5.drools.libs.type}" arg2="BRMS" />
-                <then>
-                    <path id="classpath">
-                        <path refid="initial.classpath" />
-                        <fileset dir="${temp.brms.unzip.dir}/" />
-                        <fileset dir="${temp.brms.unzip.dir}/${console.sub.domain}-server.war/WEB-INF/lib/" >
-                            <include name="jbpm-gwt-*.jar" />
-                            <include name="gwt-console-*.jar" />
-                        </fileset>
-                    </path>
-                </then>
+            <then>
+                <path id="classpath">
+                    <path refid="initial.classpath" />
+                    <!--path refid="project.classpath" / -->
+                    <fileset dir="${temp.brms.unzip.dir}/binaries" />
+                    <fileset dir="${temp.brms.unzip.dir}" >
+                        <include name="*.jar" />
+                    </fileset>
+                    <fileset dir="${temp.brms.unzip.dir}/${console.sub.domain}-server.war/WEB-INF/lib/" >
+                        <include name="jbpm-gwt-*.jar" />
+                        <include name="gwt-console-*.jar" />
+                   </fileset>
+                </path>
+            </then>
         </if>
     </target>
 
@@ -88,7 +92,7 @@
 
 
 
-    <target name="print.classpath" description="" >
+    <target name="print.classpath" description="" depends="setClasspath" >
         <pathconvert pathsep="${line.separator}|   |-- "
              property="echo.classpath"
              refid="classpath">
@@ -103,7 +107,8 @@
         usage
           parameters to pass to this target:
             1) jar.name
-            2) generate.java.doc (optional)
+            2) generate.java.doc (optional: defaults to false)
+            3) include.resources (optional: defaults to true)
     -->
     <target name="jar" depends="setClasspath">
         <fail unless="jar.name" message="jar:  need to pass 'jar.name' property" />
@@ -114,16 +119,21 @@
         <if>
             <available file="src/main/resources" />
             <then>
-                <antcall target="filter">
-                    <param name="source.dir" value="src/main/resources"/>
-                    <param name="dest.dir" value="${build.dir}"/>
-                </antcall>
+                <if>
+                    <not><equals arg1="${include.resources}" arg2="false" /></not>
+                    <then>
+                        <antcall target="filter">
+                            <param name="source.dir" value="src/main/resources"/>
+                            <param name="dest.dir" value="${build.dir}"/>
+                        </antcall>
+                    </then>
+                </if>
             </then>
         </if>
         <jar jarfile="${build.dir}/${jar.name}.jar" >
             <fileset dir="${build.dir}" />
             <manifest>
-                <attribute name="Built-By" value="${ENV.USER}"/>
+                <attribute name="Built-By" value="${os.user}"/>
                 <attribute name="Implementation-Vendor" value="${vendor.name}"/>
             </manifest>
         </jar>
@@ -160,7 +170,7 @@
         <jar jarfile="${build.dir}/${war.name}.war" >
             <fileset dir="${build.dir}/webapp" />
             <manifest>
-                <attribute name="Built-By" value="${ENV.USER}"/>
+                <attribute name="Built-By" value="${os.user}"/>
                 <attribute name="Implementation-Vendor" value="${vendor.name}"/>
             </manifest>
         </jar>
@@ -203,6 +213,7 @@
             2)  cli.to.filter.and.execute       :   mandatory
             3)  management.port                 :   optional; default = 9999
             4)  cli.fail.on.error               :   optional; default = true
+            5)  dest.dir                        :   optional; default = ${temp.dir}
     -->
     <target name="cli.batch" depends="" >
         <fail unless="cli.source.dir" message="cli.batch:  need to pass 'cli.source.dir' property" />
@@ -215,10 +226,12 @@
         <then><property name="cli.fail.on.error" value="true" /></then></if>
         <if><not><isset property="jbossCliXmx"/></not>
         <then><property name="jbossCliXmx" value="128m" /></then></if>
+        <if><not><isset property="dest.dir"/></not>
+        <then><property name="dest.dir" value="${temp.dir}" /></then></if>
         <antcall target="filter">
             <param name="source.dir" value="${cli.source.dir}"/>
             <param name="file.name" value="${cli.to.filter.and.execute}"/>
-            <param name="dest.dir" value="${build.dir}"/>
+            <param name="dest.dir" value="${dest.dir}"/>
         </antcall>
         <echo message="***** cli.batch :  about to execute following batch script = ${build.dir}/${cli.to.filter.and.execute} : cli.fail.on.error = ${cli.fail.on.error} : jbossCliXmx = ${jbossCliXmx}"/>
         <exec executable="bin/local.jboss.domain.sh" failonerror="${cli.fail.on.error}" >
@@ -227,11 +240,16 @@
             <arg value="-hostName=${server.ip.address}" />
             <arg value="-jbossCliXmx=${jbossCliXmx}" />
             <arg value="-cliPort=${management.port}"/>
-            <arg value="-cliFile=${build.dir}/${cli.to.filter.and.execute}"/>
+            <arg value="-cliFile=${dest.dir}/${cli.to.filter.and.execute}"/>
         </exec>
     </target>
 
-    <target name="eap.cli.gui" depends="" description="">
+    <target name="local.print.eap.cli" depends="" description="">
+        <echo message="cli command = ${jboss.home}/bin/jboss-cli.sh --connect --controller=${os.hostname}:${management.port}" />
+    </target>
+
+
+    <target name="local.eap.cli.gui" depends="" description="">
         <if><not><isset property="server.ip.address"/></not>
         <then><property name="server.ip.address" value="${os.hostname}" /></then></if>
         <if><not><isset property="management.port"/></not>
@@ -251,14 +269,14 @@
                 <property name="jbpm.console.server.port" value="${brms.webs.http.port}"/>
                 <property name="jbpm.conf.dir" value="${pfp.module.path}/org/jbpm/configuration/main"/>
                 <property name="guvnor.host" value="${os.hostname}:${brms.webs.http.port}"/>
-                <property name="guvnor.internal.host" value="${guvnor.host}"/>
+                <property name="guvnor.external.host" value="${guvnor.host}"/>
             </then>
             <else>
                 <property name="jbpm.console.server.host" value="${openshift.pfpCore.uri}"/>
                 <property name="jbpm.console.server.port" value="80"/>
                 <property name="jbpm.conf.dir" value="/var/lib/stickshift/${openshift.pfpCore.user.hash}/pfpCore/${openshift.jboss.cartridge.type}/standalone/configuration/modules/org/jbpm/configuration/main"/>
                 <property name="guvnor.host" value="${openshift.brmsWebs.uri}:80"/>
-                <property name="guvnor.internal.host" value="${openshift.brmsWebs.internal.ip}:${openshift.brmsWebs.internal.http.port}"/>
+                <property name="guvnor.external.host" value="${openshift.brmsWebs.uri}"/>
             </else>
         </if>
     </target>

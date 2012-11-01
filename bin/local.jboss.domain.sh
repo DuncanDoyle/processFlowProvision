@@ -42,6 +42,9 @@ do
         -hostName=*)
             hostName=`echo $var | cut -f2 -d\=` 
             ;;
+        -cliCommand=*)
+            cliCommand=`echo $var | cut -f2 -d\=` 
+            ;;
     esac
 done
 
@@ -108,7 +111,7 @@ executeAddUser() {
 }
 
 executeCli() {
-    echo -en "executeCli() "
+    echo -en "executeCli() cliCommand = $cliCommand"
     chmod 755 $jbossHome/bin/*.sh
 
     export JAVA_OPTS=-Xmx$jbossCliXmx

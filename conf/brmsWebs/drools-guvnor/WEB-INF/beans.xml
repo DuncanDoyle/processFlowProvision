@@ -16,7 +16,7 @@
     <guvnorRepository:properties>
       <s:entry><s:key>org.drools.repository.configurator</s:key><s:value>org.drools.repository.jackrabbit.JackrabbitRepositoryConfigurator</s:value></s:entry>
       <!--  the root directory for the repo storage the directory must exist. -->
-      <s:entry><s:key>repository.root.directory</s:key><s:value>${guvnor_repo_location}</s:value></s:entry>
+      <s:entry><s:key>repository.root.directory</s:key><s:value>${guvnor.repo.location}</s:value></s:entry>
     </guvnorRepository:properties>
 
     <!-- ModeShape -->

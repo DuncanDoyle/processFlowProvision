@@ -220,9 +220,9 @@
     </target>
 
     <!-- re-create guvnor filesystem and copy over repository.xml -->
-    <target name="refreshGuvnor" >
-        <delete dir="${guvnor_repo_location}" />
-        <mkdir dir="${guvnor_repo_location}" />
+    <target name="local.refresh.guvnor" description="" >
+        <delete dir="${local.guvnor.repo.location}" />
+        <mkdir dir="${local.guvnor.repo.location}" />
         <if>
             <not>
                 <equals arg1="${hibernate.dialect}" arg2="org.hibernate.dialect.HSQLDialect" />
@@ -231,7 +231,7 @@
                 <!-- antcall target="filter">
                     <param name="source.dir" value="conf/brmsWebs/drools-guvnor"/>
                     <param name="file.name" value="repository.xml"/>
-                    <param name="dest.dir" value="${guvnor_repo_location}"/>
+                    <param name="dest.dir" value="${local.guvnor.repo.location}"/>
                 </antcall -->
             </then>
         </if>
@@ -256,11 +256,16 @@
                 <unzip src="${install.home}/lib/jbpm-designer-${designer.version}.war" dest="${designer.target}" />
             </else>
         </if>
-        <!--antcall target="filter">
+        <if>
+            <isset property="non.openshift.environment"/>
+            <then><property name="guvnor.repo.location" value="${local.guvnor.repo.location}" /></then>
+            <else><property name="guvnor.repo.location" value="${openshift.guvnor.repo.location}" /></else>
+        </if>
+        <antcall target="filter">
             <param name="source.dir" value="conf/brmsWebs/drools-guvnor/WEB-INF"/>
             <param name="file.name" value="beans.xml"/>
             <param name="dest.dir" value="${guvnor.target}/WEB-INF"/>
-        </antcall -->
+        </antcall>
         <antcall target="filter">
             <param name="source.dir" value="conf/brmsWebs/drools-guvnor/WEB-INF/classes"/>
             <param name="file.name" value="preferences.properties"/>
@@ -366,8 +371,9 @@
     </target>
 
     <target name="local.deploy.guvnor.designer" >
-        <antcall target="refreshGuvnor" />
-        <antcall target="explode.guvnor.and.designer" />
+        <antcall target="explode.guvnor.and.designer" >
+            <param name="non.openshift.environment" value="true"/>
+        </antcall>
         <jar jarfile="${guvnor.zipped}" basedir="${guvnor.target}" />
         <exec executable="${jboss.home}/bin/jboss-cli.sh" failonerror="${cli.fail.on.error}">
             <arg value="--connect"/>
@@ -629,20 +635,25 @@
 
 
     <target name="pfp.clean" description="" >
-        <iterate target="clean"/> 
-        <delete dir="${guvnor_repo_location}" />
+        <if>
+            <available file="pfpServices" type="dir" />
+            <then>
+                <iterate target="clean" />
+                <if>
+                    <available file="${build.dir}" type="dir" />
+                    <then>
+                        <delete includeemptydirs="true">
+                            <fileset dir="${build.dir}" excludes="lib/**/*" />
+                        </delete>
+                    </then>
+                </if>
+            </then>
+        </if>
+        <delete dir="${local.guvnor.repo.location}" />
         <delete dir="${distro.clean}" />
         <delete dir="privateServiceTaskRepo/${build.dir}" />
         <delete dir="pfpServicesTest/${build.dir}" />
         <delete dir="osProvision/${build.dir}" />
-        <if>
-            <available file="${build.dir}" type="dir" />
-            <then>
-                <delete includeemptydirs="true">
-                    <fileset dir="${build.dir}" excludes="lib/**/*" />
-                </delete>
-            </then>
-        </if>
     </target>
 
     <target name="create.temp.client.dir" >

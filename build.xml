@@ -15,7 +15,7 @@
             <then><property name="management.port" value="9999" /></then>
         </if>
         <exec executable="bash" failonerror="true" dir="." >
-           <arg value="bin/local.jboss.domain.sh"/>
+           <arg value="${development.base}/bin/local.jboss.domain.sh"/>
            <arg value="stop"/>
            <arg value="-port=${management.port}"/>
            <arg value="-node=master"/>
@@ -28,7 +28,7 @@
             <then><var name="jbossModulePath" value="${jbossModulePath}:${sy.module.path}"/></then>
         </if>
         <exec executable="bash" failonerror="true" dir="." >
-           <arg value="bin/local.jboss.domain.sh"/>
+           <arg value="${development.base}/bin/local.jboss.domain.sh"/>
            <arg value="start"/>
            <arg value="-jbossDomainBaseDir=${jboss.domain.base.dir}"/>
            <arg value="-domainConfig=${domain.config.file}"/>
@@ -47,7 +47,7 @@
             <param name="config.path" value="${jboss.home}/${jboss.domain.base.dir}/configuration" />
         </antcall>
         <antcall target="local.start.master"  />
-        <antcall target="execute.cli">
+        <antcall target="cli.batch">
                 <param name="cli.source.dir" value="conf/jboss/"/>
                 <param name="cli.to.filter.and.execute" value="jboss-config.cli"/>
         </antcall>
@@ -86,12 +86,28 @@
 
     <!-- create a clone of the JBoss EAP 'domain' config and name it the value of ${jboss.domain.base.dir} -->
     <target name="clone.jboss" >
+        <if>
+            <not><available file="${jboss.home}" /></not>
+            <then>
+                <if>
+                    <equals arg1="${community.or.supported}" arg2="community" />
+                    <then>
+                        <get src="${as7.download.url}" dest="${install.home}/lib/${as7.name}.zip"  skipexisting="true" />
+                        <unzip src="${install.home}/lib/${as7.name}.zip" dest="${jboss.home}/.." />
+                    </then>
+                    <else>
+                        <get src="${eap6.download.url}" dest="${install.home}/lib/"  skipexisting="true" />
+                        <unzip src="${install.home}/lib/${eap6.name}.zip" dest="${jboss.home}/.." />
+                    </else>
+                </if>
+            </then>
+        </if>
         <delete dir="${jboss.home}/${jboss.domain.base.dir}" />
         <copy overwrite="true" todir="${jboss.home}/${jboss.domain.base.dir}">
             <fileset dir="${jboss.home}/domain" />
         </copy>
         <antcall target="filter">
-            <param name="source.dir" value="conf/jboss"/>
+            <param name="source.dir" value="conf/jboss/${community.or.supported}"/>
             <param name="file.name" value="domain.xml"/>
             <param name="dest.dir" value="${jboss.home}/${jboss.domain.base.dir}/configuration"/>
         </antcall>
@@ -106,53 +122,6 @@
         </antcall>
     </target>
 
-
-    <!--
-        purpose:  execute a cli batch script on a running EAP 6 server
-        pass following parameters to this target :
-            1)  cli.source.dir
-            2)  cli.to.filter.and.execute
-            3)  management.port (optional: default = 9999)
-            4)  cli.fail.on.error  (optional; default = true)
-    -->
-    <target name="execute.cli" depends="" >
-        <fail unless="cli.source.dir" message="execute.cli:  need to pass 'cli.source.dir' property" />
-        <fail unless="cli.to.filter.and.execute" message="execute.cli:  need to pass 'cli.to.filter.and.execute' property" />
-        <antcall target="filter">
-            <param name="source.dir" value="${cli.source.dir}"/>
-            <param name="file.name" value="${cli.to.filter.and.execute}"/>
-            <param name="dest.dir" value="${temp.dir}"/>
-        </antcall>
-        <if>
-            <not><isset property="management.port"/></not>
-            <then><property name="management.port" value="9999" /></then>
-        </if>
-        <if>
-            <not><isset property="cli.fail.on.error"/></not>
-            <then><property name="cli.fail.on.error" value="true" /></then>
-        </if>
-        <echo message="***** execute.cli :  about to execute following batch script = ${temp.dir}/${cli.to.filter.and.execute} : cli.fail.on.error = ${cli.fail.on.error}" />
-        <exec executable="${jboss.home}/bin/jboss-cli.sh" failonerror="${cli.fail.on.error}">
-            <arg value="--connect"/>
-            <arg value="--controller=${ENV.HOSTNAME}:${management.port}"/>
-            <arg value="-c"/>
-            <arg value="--file=${temp.dir}/${cli.to.filter.and.execute}"/>
-        </exec>
-    </target>
-    <target name="local.eap.cli.gui" depends="" description="">
-        <if>
-            <not><isset property="management.port"/></not>
-            <then><property name="management.port" value="9999" /></then>
-        </if>
-        <exec spawn="true" executable="${jboss.home}/bin/jboss-cli.sh">
-            <arg value="--connect"/>
-            <arg value="--controller=${ENV.HOSTNAME}:${management.port}"/>
-            <arg value="--gui"/>
-        </exec>
-    </target>
-    <target name="local.print.eap.cli" depends="" description="">
-        <echo message="cli command = ${jboss.home}/bin/jboss-cli.sh --connect --controller=${ENV.HOSTNAME}:${management.port}" />
-    </target>
 
     <!-- see:  <as7-source>/domain-management/src/main/java/org/jboss/as/domain/management/security/AddPropertiesUser.java -->
     <!-- does not work in as7.1.2.Final due to :
@@ -184,12 +153,12 @@
         <equals arg1="${org.jboss.processFlow.messagingProvider}" arg2="HORNETQ" />
     </condition>
     <target name="hornetq-config" if="useHornetQ" >
-        <antcall target="execute.cli">
+        <antcall target="cli.batch">
             <param name="cli.source.dir" value="conf/hornetq/"/>
             <param name="cli.to.filter.and.execute" value="hornetq-config-down.cli"/>
             <param name="cli.fail.on.error" value="false"/>
         </antcall>
-        <antcall target="execute.cli">
+        <antcall target="cli.batch">
             <param name="cli.source.dir" value="conf/hornetq/"/>
             <param name="cli.to.filter.and.execute" value="hornetq-config-up.cli"/>
             <param name="cli.fail.on.error" value="true"/>
@@ -241,7 +210,7 @@
 
     <target name="explode.guvnor.and.designer" >
         <if>
-            <equals arg1="${upstream.jbpm5.drools.libs.type}" arg2="BRMS" />
+            <equals arg1="${community.or.supported}" arg2="supported" />
             <then>
                 <antcall target="unzip.brms.deployable" />
                 <copy todir="${guvnor.target}" >
@@ -288,7 +257,7 @@
 
     <target name="explode.jbpm.gwt.console" >
         <if>
-            <equals arg1="${upstream.jbpm5.drools.libs.type}" arg2="BRMS" />
+            <equals arg1="${community.or.supported}" arg2="supported" />
             <then>
                 <antcall target="unzip.brms.deployable" />
                 <copy todir="${console.target}" >
@@ -493,7 +462,7 @@
             </fileset>
         </copy>
         <if>
-            <equals arg1="${upstream.jbpm5.drools.libs.type}" arg2="COMMUNITY_SOURCE" />
+            <equals arg1="${community.or.supported}" arg2="community" />
             <then><antcall target="local.copy.community.jbpm.deps.to.modules" /></then>
         </if>
         <copy todir="${temp.jboss.dir}/modules/org/jboss/processFlow/main" >
@@ -743,7 +712,7 @@
 
     <target name="all" >
         <if>
-            <equals arg1="${upstream.jbpm5.drools.libs.type}" arg2="BRMS" />
+            <equals arg1="${community.or.supported}" arg2="supported" />
             <then><antcall target="unzip.brms.deployable" /></then>
         </if>
         <antcall target="refresh.master" />

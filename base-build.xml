@@ -195,7 +195,7 @@
         <if><not><isset property="cli.fail.on.error"/></not>
         <then><property name="cli.fail.on.error" value="true" /></then></if>
         <if><not><isset property="jbossCliXmx"/></not>
-        <then><property name="jbossCliXmx" value="128m" /></then></if>
+        <then><property name="jbossCliXmx" value="${jboss.cli.Xmx}" /></then></if>
         <exec executable="bin/local.jboss.domain.sh" failonerror="${cli.fail.on.error}" >
             <arg value="executeCli"/>
             <arg value="-jbossHome=${jboss.home}"/>

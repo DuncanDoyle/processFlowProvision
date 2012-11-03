@@ -198,11 +198,11 @@
                 <equals arg1="${hibernate.dialect}" arg2="org.hibernate.dialect.HSQLDialect" />
             </not>
             <then>
-                <!-- antcall target="filter">
+                <antcall target="filter">
                     <param name="source.dir" value="conf/brmsWebs/drools-guvnor"/>
                     <param name="file.name" value="repository.xml"/>
                     <param name="dest.dir" value="${local.guvnor.repo.location}"/>
-                </antcall -->
+                </antcall>
             </then>
         </if>
 
@@ -235,6 +235,11 @@
             <param name="source.dir" value="conf/brmsWebs/drools-guvnor/WEB-INF"/>
             <param name="file.name" value="beans.xml"/>
             <param name="dest.dir" value="${guvnor.target}/WEB-INF"/>
+        </antcall>
+        <antcall target="filter">
+            <param name="source.dir" value="conf/brmsWebs/drools-guvnor"/>
+            <param name="file.name" value="repository.xml"/>
+            <param name="dest.dir" value="${local.guvnor.repo.location}"/>
         </antcall>
         <antcall target="filter">
             <param name="source.dir" value="conf/brmsWebs/drools-guvnor/WEB-INF/classes"/>

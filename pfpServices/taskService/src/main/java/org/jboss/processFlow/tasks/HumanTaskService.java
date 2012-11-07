@@ -36,6 +36,8 @@ import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import javax.annotation.Resource;
 import javax.ejb.EJB;
+import javax.ejb.Lock;
+import javax.ejb.LockType;
 import javax.ejb.Remote;
 import javax.ejb.Singleton;
 import javax.ejb.Startup;
@@ -78,6 +80,7 @@ import org.jboss.processFlow.PFPBaseService;
 @Remote(ITaskService.class)
 @Singleton(name="taskProxy")
 @Startup
+@Lock(LockType.READ)
 @TransactionAttribute(TransactionAttributeType.REQUIRED)
 public class HumanTaskService extends PFPBaseService implements ITaskService {
 

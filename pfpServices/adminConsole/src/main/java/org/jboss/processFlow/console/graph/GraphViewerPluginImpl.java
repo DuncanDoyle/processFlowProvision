@@ -146,28 +146,16 @@ public class GraphViewerPluginImpl extends org.jbpm.integration.console.graph.Gr
         result.setWidth(932);
         result.setHeight(541);
         List<DiagramNodeInfo> nodeList = new ArrayList<DiagramNodeInfo>();
-        if (process instanceof WorkflowProcess) {
-            addNodesInfo(nodeList, ((WorkflowProcess) process).getNodes(), "id=");
-        }
+        addNodesInfo(nodeList, processMeta.getNodes(), "id=");
         result.setNodeList(nodeList);
         return result;
     }
     
-    private void addNodesInfo(List<DiagramNodeInfo> nodeInfos, Node[] nodes, String prefix) {
-        for (Node node: nodes) {
-        	
-        	// JA Bride:  AsyncBAMProducer has been modified from stock jbpm5 to persist the "uniqueNodeId" in the jbpm_bam database
-        	//  (as opposed to persisting just the simplistic nodeId)
-        	//  will need to invoke same functionality here to calculate 'uniqueNodeId' 
-        	String uniqueId = org.jbpm.bpmn2.xml.XmlBPMNProcessDumper.getUniqueNodeId(node);
-            nodeInfos.add(new DiagramNodeInfo(
-                uniqueId,
-                (Integer) node.getMetaData().get("x"),
-                (Integer) node.getMetaData().get("y"),
-                (Integer) node.getMetaData().get("width"),
-                (Integer) node.getMetaData().get("height")));
-            if (node instanceof NodeContainer) {
-                addNodesInfo(nodeInfos, ((NodeContainer) node).getNodes(), prefix + node.getId() + ":");
+    private void addNodesInfo(List<DiagramNodeInfo> nodeInfos, List<SerializableNodeMetaData> nodes, String prefix) {
+        for (SerializableNodeMetaData node: nodes) {
+            nodeInfos.add(new DiagramNodeInfo(node.getUniqueId(),node.getX(),node.getY(),node.getWidth(),node.getHeight()));
+            if (node.getNodes().size() > 0) {
+               addNodesInfo(nodeInfos, node.getNodes(), prefix + node.getUniqueId() + ":");
             }
         }
     }

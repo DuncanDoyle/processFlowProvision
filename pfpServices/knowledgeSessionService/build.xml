@@ -5,8 +5,8 @@
     <import file="${development.base}/base-build.xml"/>
 
     <target name="all" depends="clean,setClasspath" >
-        <copy file="${jbpm.source.dir}/jbpm-gwt/jbpm-gwt-console-server/src/main/assembly/resources/ProcessInstanceInfoMapping-JPA2.xml" todir="src/main/resources/META-INF" />
-        <copy file="${jbpm.source.dir}/jbpm-gwt/jbpm-gwt-console-server/src/main/assembly/resources/JBPMorm-JPA2.xml" todir="src/main/resources/META-INF" />
+        <copy file="${jbpm.source.dir}/jbpm-persistence-jpa/src/main/resources/META-INF/ProcessInstanceInfoMapping-JPA2.xml" todir="src/main/resources/META-INF" />
+        <copy file="${jbpm.source.dir}/jbpm-persistence-jpa/src/main/resources/META-INF/JBPMorm-JPA2.xml" todir="src/main/resources/META-INF" />
         <mkdir dir="${build.dir}" />
         <javac debug="true" srcdir="src/main/java" destdir="${build.dir}" >
             <classpath refid="classpath" />

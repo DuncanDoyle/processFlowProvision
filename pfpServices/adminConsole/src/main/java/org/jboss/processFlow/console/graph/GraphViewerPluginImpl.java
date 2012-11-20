@@ -56,6 +56,8 @@ import org.jboss.bpm.console.client.model.DiagramInfo;
 import org.jboss.bpm.console.client.model.DiagramNodeInfo;
 import org.jboss.processFlow.bam.IBAMService;
 import org.jboss.processFlow.knowledgeService.IKnowledgeSessionService;
+import org.jboss.processFlow.knowledgeService.SerializableNodeMetaData;
+import org.jboss.processFlow.knowledgeService.SerializableProcessMetaData;
 import org.jbpm.process.audit.NodeInstanceLog;
 import org.jbpm.process.audit.ProcessInstanceLog;
 
@@ -136,8 +138,8 @@ public class GraphViewerPluginImpl extends org.jbpm.integration.console.graph.Gr
     }
 
     public DiagramInfo getDiagramInfo(String processId) {
-        Process process = null; //ksessionProxy.getProcess(processId);
-        if (process == null) {
+        SerializableProcessMetaData processMeta = ksessionProxy.getProcess(processId);
+        if (processMeta == null) {
             return null;
         }
 

@@ -331,7 +331,7 @@ public class BaseKnowledgeSessionService {
         try {
             KnowledgeBuilder kbuilder = KnowledgeBuilderFactory.newKnowledgeBuilder();
             if(guvnorUtils.guvnorExists()) {
-                guvnorProps.load(KnowledgeSessionService.class.getResourceAsStream("/jbpm.console.properties"));
+                guvnorProps.load(BaseKnowledgeSessionService.class.getResourceAsStream("/jbpm.console.properties"));
                 StringBuilder guvnorSBuilder = new StringBuilder();
                 guvnorSBuilder.append(guvnorProps.getProperty(GuvnorConnectionUtils.GUVNOR_PROTOCOL_KEY));
                 guvnorSBuilder.append("://");

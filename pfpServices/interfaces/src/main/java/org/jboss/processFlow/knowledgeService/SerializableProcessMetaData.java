@@ -50,3 +50,4 @@ public class SerializableProcessMetaData implements Serializable{
     private String packageName;
     private List<SerializableNodeMetaData> nodes = new ArrayList();
 }
+

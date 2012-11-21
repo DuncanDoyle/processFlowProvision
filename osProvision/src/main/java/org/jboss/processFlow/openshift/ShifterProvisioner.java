@@ -166,14 +166,17 @@ public class ShifterProvisioner {
         XPathExpression expression = xpath.compile("/openshiftAccounts/account");
         accountsList = (NodeList)expression.evaluate(accountDetailsDoc, XPathConstants.NODESET);
         if(refreshDomain) {
-        	StringBuffer warningBuf = new StringBuffer("\n\nDANGER:  you have requested to re-provision(aka: annihilate) your Openshift account(s).");
-        	warningBuf.append("\n\tdo you seriously want to do that?");
-        	warningBuf.append("\n\twhat's the chances you've invoked the wrong command ?  (i do it all the time)");
-        	warningBuf.append("\n\tif you want to proceed, type in the character 'y' and press return");
-        	log.info(warningBuf);
-        	if(!YES.equals(readEntry())){
-        		return;
-        	}
+            StringBuffer warningBuf = new StringBuffer("\n\nDANGER:  you have requested to re-provision(aka: annihilate) the following Openshift account(s):\n");
+            for(int p=0; p < accountsList.getLength(); p++){
+                Node accountNameNode = accountsList.item(p);
+                warningBuf.append("\n\t\t"+accountNameNode.getChildNodes().item(1).getTextContent());            
+            }
+            warningBuf.append("\n\n\tdo you seriously want to do that?");
+            warningBuf.append("\n\tif you want to proceed, type in the character 'y' and press return");
+            log.info(warningBuf);
+            if(!YES.equals(readEntry())){
+                return;
+            }
         }
         try {
             provisionAccounts();
@@ -205,39 +208,13 @@ public class ShifterProvisioner {
         accountLogDir = new File(openshiftAccountProvisioningLogDir);
         accountLogDir.mkdirs();
         
-        Document accountDetailsDoc = createDocument(xmlFile);
-        Element rootElement = (Element)accountDetailsDoc.getFirstChild();
-        NodeList accountsList = rootElement.getChildNodes();
-        for(int t=0; t<= accountsList.getLength(); t++){
-            Node account = accountsList.item(t);
-            if(account != null && account.getNodeType() == Node.ELEMENT_NODE) {
-                
-                /*  now parsing openshift accounts
-                 *  will iterate through each account and with each account will spawn a new thread
-                 *  thread is responsible for provisioning that openshift account
-                 */
-                String accountId = null;
-                String password = null;
-                String domainId = null;
-                NodeList accountDetailsList = ((Element)account).getChildNodes();
-                for(int y=0; y<=accountDetailsList.getLength(); y++){
-                    Node detail = accountDetailsList.item(y);
-                    if(detail != null && detail.getNodeType() == Node.ELEMENT_NODE){
-                        Element detailElem = (Element)detail;
-                        if(ACCOUNT_ID.equals(detailElem.getNodeName()))
-                            accountId = detailElem.getTextContent();
-                        else if(PASSWORD.equals(detailElem.getNodeName()))
-                            password = detailElem.getTextContent();
-                        else if(DOMAIN_ID.equals(detailElem.getNodeName()))
-                            domainId = detailElem.getTextContent();
-                        else
-                            throw new RuntimeException("provisionAccounts() invalid Element = "+detailElem.getNodeName()+" : in file = "+openshiftAccountDetailsFile);
-                    }
-                }
-                ProvisionerThread shifterProvisioner = new ProvisionerThread(accountId, password, domainId);
-                Thread pThread = new Thread(shifterProvisioner);
-                pThread.start();
-            }
+        ExecutorService execObj = Executors.newFixedThreadPool(accountsList.getLength());
+        for(int t=0; t<accountsList.getLength(); t++){
+            Node accountNode = accountsList.item(t);
+            Runnable shifterProvisioner = new ProvisionerThread(accountNode);
+            execObj.execute(shifterProvisioner);
+            //ProvisionerThread shifterProvisioner = new ProvisionerThread(accountNode);
+            //shifterProvisioner.run();
         }
     }
     
@@ -259,15 +236,13 @@ public class ShifterProvisioner {
         
         public ProvisionerThread(Node accountNode) throws Exception {
             this.accountNode = accountNode;
-            xpath = XPathFactory.newInstance().newXPath();
-            xpath.setNamespaceContext(new AccountNameSpaceContext());
-            XPathExpression expression = xpath.compile("//accountId | //password | //domainId");
+            XPathFactory xpathF = XPathFactory.newInstance();
+            xpath = xpathF.newXPath();
             findPFPExpression = xpath.compile("/account/pfpCore");
             findBRMSWebsExpression = xpath.compile("/account/brmsWebs");
-            NodeList detailList = (NodeList)expression.evaluate(accountNode, XPathConstants.NODESET);
-            this.accountId = detailList.item(0).getTextContent();
-            this.password = detailList.item(1).getTextContent();
-            this.domainId = detailList.item(2).getTextContent();
+            this.accountId = accountNode.getChildNodes().item(1).getTextContent();
+            this.password = accountNode.getChildNodes().item(3).getTextContent();
+            this.domainId = accountNode.getChildNodes().item(5).getTextContent();
             accountLog = new File(accountLogDir, accountId+".log");
             jsonMapper = new ObjectMapper();
         }

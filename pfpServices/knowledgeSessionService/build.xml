@@ -5,8 +5,6 @@
     <import file="${development.base}/base-build.xml"/>
 
     <target name="all" depends="clean,setClasspath" >
-        <copy file="${jbpm.source.dir}/jbpm-persistence-jpa/src/main/resources/META-INF/ProcessInstanceInfoMapping-JPA2.xml" todir="src/main/resources/META-INF" />
-        <copy file="${jbpm.source.dir}/jbpm-persistence-jpa/src/main/resources/META-INF/JBPMorm-JPA2.xml" todir="src/main/resources/META-INF" />
         <mkdir dir="${build.dir}" />
         <javac debug="true" srcdir="src/main/java" destdir="${build.dir}" >
             <classpath refid="classpath" />
@@ -16,8 +14,6 @@
         </copy>
         <jar jarfile="${build.dir}/processFlow-${ant.project.name}.jar" basedir="${build.dir}" />
         <copy file="${build.dir}/processFlow-${ant.project.name}.jar" toDir="${temp.pfp.services.dir}" />
-        <delete file="src/main/resources/META-INF/ProcessInstanceInfoMapping-JPA2.xml" />
-        <delete file="src/main/resources/META-INF/JBPMorm-JPA2.xml" />
 
         <!-- now re-create so as to generate java doc -->
         <antcall target="clean" />

@@ -139,6 +139,24 @@
         </antcall>
     </target>
 
+    <target name="unzip.jbpm.community">
+        <antcall target="download.jbpm.community" />
+        <antcall target="download.jbpm.gwt.console" />
+        <if>
+            <not><available file="${temp.community.unzip.dir}/jbpm-persistence-jpa-${jBPM.version}.jar" type="dir" /></not> 
+            <then>
+                <unzip src="${install.home}/lib/jbpm-${jBPM.version}-bin.zip" dest="${temp.community.unzip.dir}" />
+                <unzip src="${install.home}/lib/jbpm-${jBPM.version}-gwt-console.zip" dest="${temp.community.unzip.dir}" />
+                <delete file="${temp.community.unzip.dir}/jbpm-gwt-console-server-${jBPM.version}-AS5.war" />
+                <unzip src="${temp.community.unzip.dir}/jbpm-gwt-console-server-${jBPM.version}-EE6.war" 
+                        dest="${temp.community.console.server.unzip.dir}" />
+            </then>
+            <else>
+                <echo message="${temp.community.unzip.dir}/${guvnor.name} already located .... no need to unzip community downloads again" />
+            </else>
+        </if>
+    </target>
+
     <target name="unzip.brms.deployable">
         <antcall target="download.brms.deployable" />
         <if>
@@ -196,7 +214,7 @@
             </then>
             <else>
                 <antcall target="download.community.guvnor.and.designer" />
-                <unzip src="${install.home}/lib/guvnor-distribution-wars-${drools.guvnor.version}-jboss-as-7.0.war" dest="${guvnor.target}" />
+                <unzip src="${install.home}/lib/guvnor-${drools.guvnor.version}-jboss-as-7.0.war" dest="${guvnor.target}" />
                 <unzip src="${install.home}/lib/jbpm-designer-${designer.version}.war" dest="${designer.target}" />
             </else>
         </if>
@@ -249,8 +267,8 @@
                 </copy>
             </then>
             <else>
-                <unzip src="${jbpm.source.dir}/jbpm-gwt/jbpm-gwt-console/target/jbpm-gwt-console-${jBPM.version}.war" dest="${console.target}"/>
-                <unzip src="${jbpm.source.dir}/jbpm-gwt/jbpm-gwt-console-server/target/jbpm-gwt-console-server-${jBPM.version}-EE6.war" dest="${console.server.target}"/>
+                <unzip src="${temp.community.unzip.dir}/jbpm-gwt-console-${jBPM.version}.war" dest="${console.target}"/>
+                <unzip src="${temp.community.unzip.dir}/jbpm-gwt-console-server-${jBPM.version}-EE6.war" dest="${console.server.target}"/>
             </else>
         </if>
 
@@ -446,7 +464,7 @@
 
         <if>
             <equals arg1="${community.or.supported}" arg2="community" />
-            <then><var name="temp.gwt.path" value="${jbpm.source.dir}/jbpm-gwt/jbpm-gwt-shared/target/" /></then>
+            <then><var name="temp.gwt.path" value="${temp.community.console.server.unzip.dir}/WEB-INF/lib/" /></then>
             <else><var name="temp.gwt.path" value="${jbpm.lib.path}/business-central-server.war/WEB-INF/lib/" /></else>
         </if>
         <copy toDir="${temp.jboss.dir}/modules/org/jbpm/main" overwrite="true" >
@@ -653,15 +671,17 @@
         <get src="${switchyard.deployer.download.url}" dest="${install.home}/lib/"  skipexisting="true" />
         <unzip src="${install.home}/lib/switchyard.deployer.zip" dest="${temp.sy.dir}" />
     </target>
+    <target name="download.jbpm.community">
+        <get src="${jbpm.community.url}" dest="${install.home}/lib/jbpm-${jBPM.version}-bin.zip"  skipexisting="true" />
+    </target>
     <target name="download.drools.guvnor">
-        <get src="${drools.guvnor.url}" dest="${install.home}/lib/guvnor-distribution-wars-${drools.guvnor.version}-jboss-as-7.0.war"  skipexisting="true" />
+        <get src="${drools.guvnor.url}" dest="${install.home}/lib/guvnor-${drools.guvnor.version}-jboss-as-7.0.war"  skipexisting="true" />
     </target>
     <target name="download.designer" >
         <get src="${designer.url}/jbpm-designer-${designer.version}.war" dest="${install.home}/lib/jbpm-designer-${designer.version}.war"  skipexisting="true" />
     </target>
-    <target name="download.jBPM.gwt-console">
-        <property name="jBPM.url" value="file://${jbpm.source.dir}/jbpm-distribution/target" />
-        <get src="${jBPM.url}/jbpm-${console.server.version}-gwt-console.zip" dest="${install.home}/lib/jbpm-${console.server.version}-gwt-console.zip"  skipexisting="true" />
+    <target name="download.jbpm.gwt.console">
+        <get src="${jbpm.community.gwt.console.url}" dest="${install.home}/lib/jbpm-${jBPM.version}-gwt-console.zip"  skipexisting="true" />
     </target>
     <target name="download.birt.as7" >
         <mkdir dir="${install.home}/lib/reporting" />
@@ -690,6 +710,7 @@
         <if>
             <equals arg1="${community.or.supported}" arg2="supported" />
             <then><antcall target="unzip.brms.deployable" /></then>
+            <else><antcall target="unzip.jbpm.community" /></else>
         </if>
         <antcall target="refresh.master" />
         <antcall target="local.provision.brms.webs">

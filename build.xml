@@ -214,7 +214,9 @@
             </then>
             <else>
                 <antcall target="download.community.guvnor.and.designer" />
-                <unzip src="${install.home}/lib/guvnor-${drools.guvnor.version}-jboss-as-7.0.war" dest="${guvnor.target}" />
+                <unzip src="${install.home}/lib/guvnor-distribution-${drools.guvnor.version}.zip" dest="${temp.community.unzip.dir}" />
+                <unzip src="${temp.community.unzip.dir}/guvnor-distribution-${drools.guvnor.version}/binaries/guvnor-${drools.guvnor.version}-jboss-as-7.0.war" 
+                               dest="${guvnor.target}" />
                 <unzip src="${install.home}/lib/jbpm-designer-${designer.version}.war" dest="${designer.target}" />
             </else>
         </if>

@@ -53,8 +53,12 @@
                 <path id="classpath">
                     <path refid="initial.classpath" />
                     <path refid="project.classpath" />
-                    <fileset dir="${temp.community.unzip.dir}" />
-                    <fileset dir="${temp.community.console.server.unzip.dir}/WEB-INF/lib" />
+                    <fileset dir="${temp.community.unzip.dir}">
+                        <include name="*.jar" />
+                    </fileset>
+                    <fileset dir="${temp.community.console.server.unzip.dir}/WEB-INF/lib">
+                        <include name="*.jar" />
+                    </fileset>
                 </path>
             </then>
         </if>

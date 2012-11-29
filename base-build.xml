@@ -49,18 +49,28 @@
 
         <if>
             <equals arg1="${community.or.supported}" arg2="community" />
-            <then>
-                <path id="classpath">
+                <then>
+                    <available file="${jbpm.source.dir}/jbpm-distribution/target/jbpm-${jBPM.version}-pre-bin/lib" property="jbpm5CommunitySourceExists" />
+                    <fail unless="jbpm5CommunitySourceExists" message="no compiled jbpm5/drools libraries at: ${jbpm.source.dir}/jbpm-distribution/target/jbpm-${jBPM.version}-pre-bin/lib.  Please review ${development.base}/doc/DEVELOPER_GUIDE.txt" />
+
+                    <path id="classpath">
                     <path refid="initial.classpath" />
                     <path refid="project.classpath" />
-                    <fileset dir="${temp.community.unzip.dir}">
-                        <include name="*.jar" />
-                    </fileset>
-                    <fileset dir="${temp.community.console.server.unzip.dir}/WEB-INF/lib">
-                        <include name="*.jar" />
-                    </fileset>
-                </path>
-            </then>
+                        <fileset dir="${jbpm.source.dir}/jbpm-bam/target" ><include name="*.jar" /></fileset>
+                        <fileset dir="${jbpm.source.dir}/jbpm-human-task/jbpm-human-task-core/target" ><include name="*.jar" /></fileset>
+                        <fileset dir="${jbpm.source.dir}/jbpm-flow/target" ><include name="*.jar" /></fileset>
+                        <fileset dir="${jbpm.source.dir}/jbpm-flow-builder/target" ><include name="*.jar" /></fileset>
+                        <fileset dir="${jbpm.source.dir}/jbpm-bpmn2/target" ><include name="*.jar" /></fileset>
+                        <fileset dir="${jbpm.source.dir}/jbpm-gwt/jbpm-gwt-graph/target" ><include name="*.jar" /></fileset>
+                        <fileset dir="${jbpm.source.dir}/jbpm-gwt/jbpm-gwt-form/target" ><include name="*.jar" /></fileset>
+                        <fileset dir="${jbpm.source.dir}/jbpm-gwt/jbpm-gwt-shared/target" ><include name="*.jar" /></fileset>
+                        <fileset dir="${jbpm.source.dir}/jbpm-workitems/target" ><include name="*.jar" /></fileset>
+                        <fileset dir="${jbpm.source.dir}/jbpm-distribution/target/jbpm-${jBPM.version}-pre-bin/lib" ><include name="*.jar" /></fileset>
+                        <fileset dir="${jbpm.source.dir}/jbpm-gwt/jbpm-gwt-console-server/target/jbpm-gwt-console-server-${console.server.version}/WEB-INF/lib" >
+                            <include name="gwt-console*.jar" />
+                        </fileset>
+                    </path>
+                </then>
         </if>
         <if>
             <equals arg1="${community.or.supported}" arg2="supported" />
@@ -204,7 +214,7 @@
         <if><not><isset property="cli.fail.on.error"/></not>
         <then><property name="cli.fail.on.error" value="true" /></then></if>
         <if><not><isset property="jbossCliXmx"/></not>
-        <then><property name="jbossCliXmx" value="${jboss.cli.Xmx}" /></then></if>
+        <then><property name="jbossCliXmx" value="128m" /></then></if>
         <exec executable="bin/local.jboss.domain.sh" failonerror="${cli.fail.on.error}" >
             <arg value="executeCli"/>
             <arg value="-jbossHome=${jboss.home}"/>
@@ -325,14 +335,11 @@
         </if>
     </target>
     <target name="local.stop.master" description="default behavior is to shutdown all jboss servers via management port of 9999" >
-        <if>
-            <not><isset property="management.port"/></not>
-            <then><property name="management.port" value="9999" /></then>
-        </if>
         <exec executable="bash" failonerror="true" dir="." >
            <arg value="${development.base}/bin/local.jboss.domain.sh"/>
            <arg value="stop"/>
-           <arg value="-port=${management.port}"/>
+           <arg value="-hostName=${os.hostname}"/>
+           <arg value="-cliPort=${management.port}"/>
            <arg value="-node=master"/>
         </exec>
     </target>

@@ -647,7 +647,6 @@
                 </if>
             </then>
         </if>
-        <delete dir="${local.guvnor.repo.location}" />
         <delete dir="${distro.clean}" />
         <delete dir="privateServiceTaskRepo/${build.dir}" />
         <delete dir="pfpServicesTest/${build.dir}" />

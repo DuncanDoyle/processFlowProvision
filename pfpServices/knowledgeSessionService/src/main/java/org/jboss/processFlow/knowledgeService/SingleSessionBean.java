@@ -23,16 +23,12 @@
 package org.jboss.processFlow.knowledgeService;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ConcurrentHashMap;
-
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import javax.enterprise.inject.Alternative;
-import javax.enterprise.inject.Default;
 import javax.inject.Singleton;
-import javax.persistence.*;
-
+import javax.persistence.EntityManager;
+import javax.persistence.Query;
 import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
 import org.drools.SystemEventListenerFactory;
@@ -48,8 +44,8 @@ import org.drools.event.process.ProcessNodeTriggeredEvent;
 import org.drools.event.process.ProcessStartedEvent;
 import org.drools.event.process.ProcessVariableChangedEvent;
 import org.drools.io.*;
-import org.drools.logger.KnowledgeRuntimeLogger;
 import org.drools.logger.KnowledgeRuntimeLoggerFactory;
+import org.drools.persistence.info.SessionInfo;
 import org.drools.persistence.jpa.JPAKnowledgeService;
 import org.drools.persistence.jpa.JpaJDKTimerService;
 import org.drools.persistence.jpa.processinstance.JPAWorkItemManagerFactory;
@@ -65,7 +61,6 @@ import org.jbpm.workflow.instance.node.SubProcessNodeInstance;
 import org.jbpm.integration.console.shared.GuvnorConnectionUtils;
 import org.jbpm.task.admin.TaskCleanUpProcessEventListener;
 import org.jbpm.task.admin.TasksAdmin;
-
 import org.jboss.processFlow.bam.IBAMService;
 import org.jboss.processFlow.bam.AsyncBAMProducerPool;
 import org.jboss.processFlow.bam.AsyncBAMProducer;
@@ -76,46 +71,23 @@ import org.jboss.processFlow.util.LogSystemEventListener;
 /**
  *<pre>
  *architecture
- *  - this singleton utilizes a 'processInstance per knowledgeSession' architecture
- *  - although the jbpm5 API technically allows for a StatefulKnowledgeSession to manage the lifecycle of multiple process instances,
- *      we choose not to have to deal with optimistic lock exception handling (in particular with the sessionInfo) during highly concurrent environments
- *
- *notes on Transactions
- *  - most publicly exposed methods in this singleton assumes a container managed trnx demarcation of REQUIRED
- *  - in some methods, bean managed transaction demarcation is used IOT dispose of the ksession *AFTER* the transaction has committed
- *  - otherwise, the method will fail due to implementation of JBRULES-1880
- *
- *      
- *ksession management
- *  - in this IKnowledgeSessionService implementation, a ksessionId is allocated to a process instance (and any subprocesses) for its entire lifecycle 
- *  - upon completion of a process instance, the ksessionId is made available again for a new process instance
- *  - this singleton utilizes two data structures, busySessions & availableSessions, to maintain which ksessionIds are available for reuse
- *  - a sessioninfo record in the jbpm database corresponds to a single StatefulKnowledgeSession
- *  - a sessioninfo record typically includes the state of :
- *          * timers
- *          * business rule data
- *          * business rule state
- *  - a sessioninfo record is never purged from the database ... in this implementation it is simply re-cycled for use by a new process instance
+ *  - this singleton implements a 'single knowledgeSession for all pInstances' architecture
  *  - ksessionId state :
  *      - some of the public methods implemented by this bean take both a 'processInstanceId' and a 'ksessionId' as a parameter
- *      - for the purposes of this implementation, the 'ksessionId' is always optional 
- *          if null is passed to any of the methods accepting a ksessionid, then this implementation will query the jbpm5 task table
-            to determine the mapping between processInstanceId and ksessionId
+ *      - for the purposes of this implementation, the 'ksessionId' is always ignored
  *
- *  TO-DO :  prevent potential optimisticlock exception scenarios when invoking 'abortProcess', 'signalEvent', etc
- *      see comments on loadStatefulKnowledgeSession(...) method
+ *  - this implementation is ideal in a multi-threaded, concurrent client environment where process definitions do not include rule data
+ *
  *</pre>
  */
-
 @Singleton
 @Alternative
-@Default
-public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements IKnowledgeSessionBean {
+public class SingleSessionBean extends BaseKnowledgeSessionBean implements IKnowledgeSessionBean {
 
-    private ConcurrentMap<Integer, KnowledgeSessionWrapper> kWrapperHash = new ConcurrentHashMap<Integer, KnowledgeSessionWrapper>();
-    private Logger log = Logger.getLogger(SessionPerPInstanceBean.class);
+    private Logger log = Logger.getLogger(SingleSessionBean.class);
     private AsyncBAMProducerPool bamProducerPool=null;
-    private IKnowledgeSessionPool sessionPool;
+    private StatefulKnowledgeSession ksession;
+    
 /******************************************************************************
  **************        Singleton Lifecycle Management                     *********/
     @PostConstruct
@@ -137,15 +109,6 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
         ksconfigProperties.setProperty( "drools.timerService", JpaJDKTimerService.class.getName() );
 
         guvnorUtils = new GuvnorConnectionUtils();
-
-        // instantiate kSession pool
-        if (System.getProperty("org.jboss.processFlow.KnowledgeSessionPool") != null) {
-            String clazzName = System.getProperty("org.jboss.processFlow.KnowledgeSessionPool");
-            sessionPool = (IKnowledgeSessionPool) Class.forName(clazzName).newInstance();
-        }
-        else {
-            sessionPool = new InMemoryKnowledgeSessionPool();
-        }
 
         String logString = System.getProperty("org.jboss.enableLog");
         if(logString != null)
@@ -174,6 +137,21 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
         programmaticallyLoadedWorkItemHandlers.put(ITaskService.SKIP_TASK, Class.forName("org.jboss.processFlow.tasks.handlers.PFPSkipTaskHandler"));
         programmaticallyLoadedWorkItemHandlers.put(ITaskService.FAIL_TASK, Class.forName("org.jboss.processFlow.tasks.handlers.PFPFailTaskHandler"));
         programmaticallyLoadedWorkItemHandlers.put(IKnowledgeSessionService.EMAIL, Class.forName("org.jboss.processFlow.email.PFPEmailWorkItemHandler"));
+        
+        StringBuilder sqlBuilder = new StringBuilder();
+        sqlBuilder.append("FROM SessionInfo p ");
+        EntityManager eManager = jbpmCoreEMF.createEntityManager();
+        Query processInstanceQuery = eManager.createQuery(sqlBuilder.toString());
+        List<SessionInfo> results = processInstanceQuery.getResultList();
+        if(results.size() == 0){
+        	ksession = makeStatefulKnowledgeSession();
+        }else if(results.size() > 1){
+        	throw new RuntimeException("start() currently " +results.size()+" # of sessionInfo records when only 1 is allowed");
+        }else{
+        	SessionInfo sInfoObj = (SessionInfo)results.get(0);
+        	loadStatefulKnowledgeSession(sInfoObj.getId());            	
+        }
+        addExtrasToStatefulKnowledgeSession();
     }
   
     @PreDestroy 
@@ -192,30 +170,12 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
 
         if(bamProducerPool != null)
             bamProducerPool.close();
+        
+        ksession.dispose();
     }
 
 /******************************************************************************
  *************        StatefulKnowledgeSession Management               *********/
-    
-    /*
-        - load a StatefulKnowledgeSession with an id recently freed during the 'after process completion' event
-        - if no available sessions, then make a new StatefulKnowledgeSession
-     */
-    private StatefulKnowledgeSession getStatefulKnowledgeSession(String processId) {
-        StatefulKnowledgeSession ksession = null;
-        if(processId != null) {
-            int sessionId = sessionPool.getAvailableSessionId();
-            if(sessionId > 0) {
-                ksession = loadStatefulKnowledgeSession(new Integer(sessionId));
-            } else {
-                ksession = makeStatefulKnowledgeSession();
-            }
-            sessionPool.markAsBorrowed(ksession.getId(), processId);
-        } else {
-            ksession = makeStatefulKnowledgeSession();
-        }
-        return ksession;
-    }
 
     /*
         -- this method is invoked by numerous methods such as 'completeWorkItem' and 'abortProcessInstance'
@@ -224,12 +184,7 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
         -- optimistic lock exception could ensue
         -- the kWrapperHash datastructure is a good candidate to use
     */
-    private StatefulKnowledgeSession loadStatefulKnowledgeSession(Integer sessionId) {
-        if(kWrapperHash.containsKey(sessionId)) {
-            log.info("loadStatefulKnowledgeSession() found ksession in cache for ksessionId = " +sessionId);
-            return kWrapperHash.get(sessionId).ksession;
-        }
-        
+    private void loadStatefulKnowledgeSession(Integer sessionId) {
         //0) initialise knowledge base if it hasn't already been done so
         if(kbase == null){
             createKnowledgeBaseViaKnowledgeAgentOrBuilder();
@@ -241,33 +196,10 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
         KnowledgeSessionConfiguration ksConfig = KnowledgeBaseFactory.newKnowledgeSessionConfiguration(ksconfigProperties);
 
         // 2) instantiate new StatefulKnowledgeSession from old sessioninfo
-        StatefulKnowledgeSession ksession = JPAKnowledgeService.loadStatefulKnowledgeSession(sessionId, kbase, ksConfig, ksEnv);
-        return ksession;
+        ksession = JPAKnowledgeService.loadStatefulKnowledgeSession(sessionId, kbase, ksConfig, ksEnv);
     }
 
-    /*
-     *  disposeStatefulKnowledgeSessionAndExtras
-     *<pre>
-     *- disposes of a StatefulKnowledgeSession object currently in use
-     *- NOTE:  can no longer dispose knowledge session within scope of a transaction due to side effects from fix for JBRULES-1880
-     *</pre>
-     */
-    public void disposeStatefulKnowledgeSessionAndExtras(Integer sessionId) {
-        try {
-            KnowledgeSessionWrapper kWrapper = ((KnowledgeSessionWrapper)kWrapperHash.get(sessionId));
-            if(kWrapper == null)
-                throw new RuntimeException("disposeStatefulKnowledgeSessionAndExtras() no ksessionWrapper found with sessionId = "+sessionId);
-            
-            kWrapper.dispose();
-            kWrapperHash.remove(sessionId);
-        } catch(RuntimeException x) {
-            throw x;
-        } catch(Exception x){
-            throw new RuntimeException(x);
-        }
-    }
-
-    private void addExtrasToStatefulKnowledgeSession(StatefulKnowledgeSession ksession) {
+    private void addExtrasToStatefulKnowledgeSession() {
 
         // 1) register a configurable WorkItemHandlers with StatefulKnowledgeSession
         this.registerAddHumanTaskWorkItemHandler(ksession);
@@ -303,12 +235,8 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
             public void afterProcessCompleted(ProcessCompletedEvent event) {
                 StatefulKnowledgeSession ksession = (StatefulKnowledgeSession)event.getKnowledgeRuntime();
                 ProcessInstance pInstance = event.getProcessInstance();
-                if(sessionPool.isBorrowed(ksession.getId(), pInstance.getProcessId())) {
-                    log.info("afterProcessCompleted()\tsessionId :  "+ksession.getId()+" : "+pInstance+" : session to be reused");
-                    sessionPool.markAsReturned(ksession.getId());
-                } else {
-                    log.info("afterProcessCompleted()\tsessionId :  "+ksession.getId()+" : process : "+pInstance);
-                }
+                org.drools.definition.process.Process droolsProcess = event.getProcessInstance().getProcess();
+                log.info("afterProcessCompleted()\tsessionId :  "+ksession.getId()+" : process : "+pInstance+" : pDefVersion = "+droolsProcess.getVersion());
             }
 
             public void beforeProcessStarted(ProcessStartedEvent event) {
@@ -322,7 +250,8 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
             public void afterProcessStarted(ProcessStartedEvent event) {
                 StatefulKnowledgeSession ksession = (StatefulKnowledgeSession)event.getKnowledgeRuntime();
                 ProcessInstance pInstance = event.getProcessInstance();
-                log.info("afterProcessStarted()\tsessionId :  "+ksession.getId()+" : "+pInstance+" : ");
+                org.drools.definition.process.Process droolsProcess = event.getProcessInstance().getProcess();
+                log.info("afterProcessStarted()\tsessionId :  "+ksession.getId()+" : "+pInstance+" : pDefVersion = "+droolsProcess.getVersion());
             }
             public void beforeProcessCompleted(ProcessCompletedEvent event) {
             }
@@ -330,16 +259,18 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
                 if (event.getNodeInstance() instanceof SubProcessNodeInstance) {
                     StatefulKnowledgeSession ksession = (StatefulKnowledgeSession)event.getKnowledgeRuntime();
                     SubProcessNodeInstance spNode = (SubProcessNodeInstance)event.getNodeInstance();
+                    org.drools.definition.process.Process droolsProcess = event.getProcessInstance().getProcess();
                     if(enableLog)
-                        log.info("beforeNodeTriggered()\tsessionId :  "+ksession.getId()+" : sub-process : " + spNode.getNodeName()+" : pid: "+spNode.getProcessInstanceId());
+                        log.info("beforeNodeTriggered()\tsessionId :  "+ksession.getId()+" : sub-process : " + spNode.getNodeName()+" : pid: "+spNode.getProcessInstanceId()+" : pDefVersion = "+droolsProcess.getVersion());
                 }
             }
             public void afterNodeTriggered(ProcessNodeTriggeredEvent event) {
                 if (event.getNodeInstance() instanceof SubProcessNodeInstance) {
                     StatefulKnowledgeSession ksession = (StatefulKnowledgeSession)event.getKnowledgeRuntime();
-                      SubProcessNodeInstance spNode = (SubProcessNodeInstance)event.getNodeInstance();
+                    org.drools.definition.process.Process droolsProcess = event.getProcessInstance().getProcess();
+                    SubProcessNodeInstance spNode = (SubProcessNodeInstance)event.getNodeInstance();
                     if(enableLog)
-                        log.info("afterNodeTriggered()\tsessionId :  "+ksession.getId()+" : sub-process : " + spNode.getNodeName()+" : pid: "+spNode.getProcessInstanceId());
+                        log.info("afterNodeTriggered()\tsessionId :  "+ksession.getId()+" : sub-process : " + spNode.getNodeName()+" : pid: "+spNode.getProcessInstanceId()+" : pDefVersion = "+droolsProcess.getVersion());
                 }
             }
             public void beforeNodeLeft(ProcessNodeLeftEvent event) {
@@ -382,10 +313,6 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
                 }
             }
         }
- 
-        // 6)  create a kWrapper object with optional bamProducer
-        KnowledgeSessionWrapper kWrapper = new KnowledgeSessionWrapper(ksession, bamProducer);
-        kWrapperHash.put(ksession.getId(), kWrapper);
 
         // 7)  add KnowledgeRuntimeLogger as per section 4.1.3 of jbpm5 user manual
         if(enableKnowledgeRuntimeLogger) {
@@ -393,20 +320,14 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
             sBuilder.append(System.getProperty("jboss.server.log.dir"));
             sBuilder.append("/knowledgeRuntimeLogger-");
             sBuilder.append(ksession.getId());
-            kWrapper.setKnowledgeRuntimeLogger(KnowledgeRuntimeLoggerFactory.newFileLogger(ksession, sBuilder.toString()));
+            KnowledgeRuntimeLoggerFactory.newFileLogger(ksession, sBuilder.toString());
         }
 
         SingleSessionCommandService ssCommandService = (SingleSessionCommandService) ((CommandBasedStatefulKnowledgeSession)ksession).getCommandService();
     }
 
-    private StatefulKnowledgeSession loadStatefulKnowledgeSessionAndAddExtras(Integer sessionId) {
-        StatefulKnowledgeSession ksession = loadStatefulKnowledgeSession(sessionId);
-        addExtrasToStatefulKnowledgeSession(ksession);
-        return ksession;
-    }
-
     public String dumpSessionStatusInfo() {
-        return sessionPool.dumpSessionStatusInfo();
+        return "Not Applicable";
     }
 
     public String dumpBAMProducerPoolInfo() {
@@ -437,14 +358,10 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
      *</pre>
      */
     public Map<String, Object> startProcessAndReturnId(String processId, Map<String, Object> parameters) {
-        StatefulKnowledgeSession ksession = null;
         StringBuilder sBuilder = new StringBuilder();
-        Integer ksessionId = null;
+        Integer ksessionId = ksession.getId();
         try {
             uTrnx.begin();
-            ksession = getStatefulKnowledgeSession(processId);
-            ksessionId = ksession.getId();
-            addExtrasToStatefulKnowledgeSession(ksession);
             sBuilder.append("startProcessAndReturnId()\tsessionId :  "+ksessionId+" : process = "+processId);
             ProcessInstance pInstance = null;
             if(parameters != null) {
@@ -456,12 +373,6 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
             Map<String, Object> returnMap = new HashMap<String, Object>();
             returnMap.put(IKnowledgeSessionService.PROCESS_INSTANCE_ID, pInstance.getId());
             returnMap.put(IKnowledgeSessionService.KSESSION_ID, ksessionId);
-            disposeStatefulKnowledgeSessionAndExtras(ksessionId);
-
-            uTrnx.begin();
-            sessionPool.setProcessInstanceId(ksessionId, pInstance.getId());
-            uTrnx.commit();
-
             sBuilder.append(" : pInstanceId = "+pInstance.getId()+" : now completed");
             log.info(sBuilder.toString());
             return returnMap;
@@ -481,14 +392,10 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
      *<pre>
      *- notifies process engine to complete a work item and continue execution of next node in process instance
      *- this method operates within scope of container managed transaction
-     *- can no longer dispose knowledge session within scope of this transaction due to side effects from fix for JBRULES-1880
-     *- subsequently, it's expected that a client will invoke 'disposeStatefulKnowledgeSessionAndExtras' after this JTA trnx has been committed
      *</pre>
      */
     public void completeWorkItem(Integer ksessionId, Long workItemId, Map<String, Object> pInstanceVariables) {
-        StatefulKnowledgeSession ksession = null;
         try {
-            ksession = loadStatefulKnowledgeSessionAndAddExtras(ksessionId);
             ksession.getWorkItemManager().completeWorkItem(workItemId, pInstanceVariables);
         } catch(RuntimeException x) {
             throw x;
@@ -498,19 +405,13 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
     }
 
     public void signalEvent(String signalType, Object signalValue, Long processInstanceId, Integer ksessionId) {
-        StatefulKnowledgeSession ksession = null;
         try {
-            if(ksessionId == null)
-                ksessionId = sessionPool.getSessionId(processInstanceId);
-
             uTrnx.begin();
-            ksession = this.loadStatefulKnowledgeSessionAndAddExtras(ksessionId);
             if(enableLog)
                 log.info("signalEvent() \n\tksession = "+ksessionId+"\n\tprocessInstanceId = "+processInstanceId+"\n\tsignalType="+signalType+"\n\tsignalValue="+signalValue);
             ProcessInstance pInstance = ksession.getProcessInstance(processInstanceId);
             pInstance.signalEvent(signalType, signalValue);
             uTrnx.commit();
-            disposeStatefulKnowledgeSessionAndExtras(ksessionId);
         } catch(RuntimeException x) {
             rollbackTrnx();
             throw x;
@@ -521,53 +422,16 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
     }
 
     public void abortProcessInstance(Long processInstanceId, Integer ksessionId) {
-        StatefulKnowledgeSession ksession = null;
-        try {
-            if(ksessionId == null)
-                ksessionId = sessionPool.getSessionId(processInstanceId);
-
+    	try{
             uTrnx.begin();
-            ksession = loadStatefulKnowledgeSessionAndAddExtras(ksessionId);
             ksession.abortProcessInstance(processInstanceId);
-            sessionPool.markAsReturned(ksessionId);
             uTrnx.commit();
-
-            disposeStatefulKnowledgeSessionAndExtras(ksessionId);
-        } catch(RuntimeException x) {
-            rollbackTrnx();
-            throw x;
         }catch(Exception x) {
             rollbackTrnx();
             throw new RuntimeException(x);
         } finally {
         }
     }
-
-    public List<ProcessInstance> getActiveProcessInstances(Map<String, Object> queryCriteria) {
-         EntityManager psqlEm = null;
-         List<ProcessInstance> results = null;
-         StringBuilder sqlBuilder = new StringBuilder();
-         sqlBuilder.append("FROM ProcessInstance p ");
-         if(queryCriteria != null && queryCriteria.size() > 0){
-             sqlBuilder.append("WHERE ");
-             if(queryCriteria.containsKey(IKnowledgeSessionService.PROCESS_ID)){
-                 sqlBuilder.append("p.processid = :processId");
-             }
-         }
-         try {
-             psqlEm = jbpmCoreEMF.createEntityManager();
-             Query processInstanceQuery = psqlEm.createQuery(sqlBuilder.toString());
-             if(queryCriteria != null && queryCriteria.size() > 0){
-                 if(queryCriteria.containsKey(IKnowledgeSessionService.PROCESS_ID)){
-                     processInstanceQuery = processInstanceQuery.setParameter(IKnowledgeSessionService.PROCESS_ID, queryCriteria.get(IKnowledgeSessionService.PROCESS_ID));
-                 }
-             }
-             results = processInstanceQuery.getResultList();
-             return results;
-         }catch(Exception x) {
-             return null;
-         }
-     }
 
     public String printActiveProcessInstanceVariables(Long processInstanceId, Integer ksessionId) {
         Map<String,Object> vHash = getActiveProcessInstanceVariables(processInstanceId, ksessionId);
@@ -584,14 +448,9 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
         }
         return sBuilder.toString();
     }
-  
+    
     public Map<String, Object> getActiveProcessInstanceVariables(Long processInstanceId, Integer ksessionId) {
-        StatefulKnowledgeSession ksession = null;
         try {
-            if(ksessionId == null)
-                ksessionId = sessionPool.getSessionId(processInstanceId);
-
-            ksession = loadStatefulKnowledgeSessionAndAddExtras(ksessionId);
             ProcessInstance processInstance = ksession.getProcessInstance(processInstanceId);
             if (processInstance != null) {
                 Map<String, Object> variables = ((WorkflowProcessInstanceImpl) processInstance).getVariables();
@@ -612,18 +471,11 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
         } catch(Exception x) {
             throw new RuntimeException(x);
         } finally {
-            if(ksession != null)
-                disposeStatefulKnowledgeSessionAndExtras(ksessionId);
         }
     }
 
     public void setProcessInstanceVariables(Long processInstanceId, Map<String, Object> variables, Integer ksessionId) {
-        StatefulKnowledgeSession ksession = null;
         try {
-            if(ksessionId == null)
-                ksessionId = sessionPool.getSessionId(processInstanceId);
-
-            ksession = loadStatefulKnowledgeSessionAndAddExtras(ksessionId);
             ProcessInstance processInstance = ksession.getProcessInstance(processInstanceId);
             if (processInstance != null) {
                 VariableScopeInstance variableScope = (VariableScopeInstance)((org.jbpm.process.instance.ProcessInstance) processInstance).getContextInstance(VariableScope.VARIABLE_SCOPE);
@@ -637,35 +489,10 @@ public class SessionPerPInstanceBean extends BaseKnowledgeSessionBean implements
                 throw new IllegalArgumentException("Could not find process instance " + processInstanceId);
             }
         } finally {
-            if(ksession != null)
-                disposeStatefulKnowledgeSessionAndExtras(ksessionId);
         }
     }
 
-}
-
-class KnowledgeSessionWrapper {
-    StatefulKnowledgeSession ksession;
-    AsyncBAMProducer bamProducer;
-    KnowledgeRuntimeLogger rLogger;
-
-    public KnowledgeSessionWrapper(StatefulKnowledgeSession x, AsyncBAMProducer y) {
-        ksession = x;
-        bamProducer = y;
-    }
-
-    public void dispose() throws Exception {
-        if(bamProducer != null)
-            bamProducer.dispose();
-
-        if(rLogger != null) {
-            rLogger.close();
-        }
-
-        ksession.dispose();
-    }
-
-    public void setKnowledgeRuntimeLogger(KnowledgeRuntimeLogger x) {
-        rLogger = x;
-    }
+	public void disposeStatefulKnowledgeSessionAndExtras(Integer sessionId) {
+		 // do nothing.  ksession will be disposed at stop() lifecycle funtion
+	}
 }

@@ -7,6 +7,8 @@ batch
 /profile=full-ha/subsystem=datasources/data-source=jbpm-bam-cp:add(jndi-name=java:jboss/datasources/jbpm-bam-cp,connection-url=${bam_connection_url},driver-class=${bam_driver_class},driver-name=${jdbc.module.name},user-name=${bam_db_user},password=${bam_db_password},pool-name=jbpm-bam_ds_pool,max-pool-size=50,min-pool-size=10)
 /profile=full-ha/subsystem=datasources/data-source=jbpm-bam-cp:enable()
 
+/profile=full-ha/subsystem=logging/periodic-rotating-file-handler=FILE/:write-attribute(name=append,value=false)
+
 
 # create pfpCore server group and start
 /server-group=${pfp.core.group}/:add(profile=full-ha,socket-binding-group=full-ha-sockets)

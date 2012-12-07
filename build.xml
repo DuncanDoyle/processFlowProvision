@@ -112,6 +112,7 @@
             <arg value="-isAdmin=true" />
             <arg value="-userId=${jboss.admin.id}"/>
             <arg value="-password=${jboss.admin.password}"/>
+            <arg value="-jbossHome=${jboss.home}"/>
         </exec>
     </target>
 

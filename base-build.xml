@@ -29,6 +29,9 @@
         <fileset dir="${pfp.module.path}" >
             <include name="**/*.jar" />
         </fileset>
+        <fileset dir="${sy.module.path}" >
+            <include name="**/*.jar" />
+        </fileset>
         <pathelement location="${build.dir}" />
         <fileset dir="${development.base}/lib" />
     </path>
@@ -212,6 +215,7 @@
             <arg value="-hostName=${server.ip.address}" />
             <arg value="-cliPort=${management.port}"/>
             <arg value="-cliCommand=${cli.command} "/>
+            <arg value="-jbossHome=${jboss.home}"/>
         </exec>
     </target>
 
@@ -252,6 +256,7 @@
             <arg value="-jbossCliXmx=${jbossCliXmx}" />
             <arg value="-cliPort=${management.port}"/>
             <arg value="-cliFile=${dest.dir}/${cli.to.filter.and.execute}"/>
+            <arg value="-jbossHome=${jboss.home}"/>
         </exec>
     </target>
 
@@ -331,6 +336,7 @@
            <arg value="-hostName=${os.hostname}"/>
            <arg value="-cliPort=${management.port}"/>
            <arg value="-node=master"/>
+           <arg value="-jbossHome=${jboss.home}"/>
         </exec>
     </target>
     <target name="local.start.master">
@@ -347,6 +353,7 @@
            <arg value="-jbossModulePath=${jbossModulePath}"/>
            <arg value="-sleepSec=${master.sleep.sec.after.start}"/>
            <arg value="-hostName=${os.hostname}"/>
+           <arg value="-jbossHome=${jboss.home}"/>
         </exec>
     </target>
 

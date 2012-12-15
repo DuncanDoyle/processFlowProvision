@@ -26,24 +26,6 @@
         </antcall>
         <antcall target="provision.jboss.with.jdbc" />
     </target>
-    <target name="local.bounce.all.servers" description="">
-        <if>
-            <not><isset property="management.port"/></not>
-            <then><property name="management.port" value="9999" /></then>
-        </if>
-        <antcall target="local.stop.master"  />
-        <antcall target="local.start.master" />
-        <exec executable="${jboss.home}/bin/jboss-cli.sh" failonerror="${cli.fail.on.error}">
-            <arg value="--connect"/>
-            <arg value="--controller=${ENV.HOSTNAME}:${management.port}"/>
-           <arg value="/host=master/server-config=${pfp.core.server}/:start(server=${pfp.core.server},blocking=true)"/>
-        </exec>
-        <exec executable="${jboss.home}/bin/jboss-cli.sh" failonerror="${cli.fail.on.error}">
-            <arg value="--connect"/>
-            <arg value="--controller=${ENV.HOSTNAME}:${management.port}"/>
-           <arg value="/host=master/server-config=brms-webs/:start(server=brms-webs,blocking=true)"/>
-        </exec>
-    </target>
     <target name="checkServersAndProjectLib">
         <available file="${JBOSS_HOME}/jboss-modules.jar" property="defaultServerExists" />
         <fail unless="defaultServerExists" message="${JBOSS_HOME}/jboss-modules.jar doesn't exist! .... please fix your $JBOSS_HOME environment variable!!" />

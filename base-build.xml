@@ -309,16 +309,6 @@
         <antcall target="local.stop.master"  />
         <antcall target="local.start.master" />
         <if>
-            <equals arg1="${org.jboss.processFlow.provision.pfpCore}" arg2="true" />
-            <then>
-                <exec executable="${jboss.home}/bin/jboss-cli.sh" failonerror="${cli.fail.on.error}">
-                    <arg value="--connect"/>
-                    <arg value="--controller=${os.hostname}:${management.port}"/>
-                    <arg value="/server-group=${pfp.core.group}/:start-servers"/>
-                </exec>
-            </then>
-        </if>
-        <if>
             <equals arg1="${org.jboss.processFlow.provision.brmsWebs}" arg2="true" />
             <then>
                 <exec executable="${jboss.home}/bin/jboss-cli.sh" failonerror="${cli.fail.on.error}">
@@ -326,6 +316,20 @@
                     <arg value="--controller=${os.hostname}:${management.port}"/>
                     <arg value="/host=master/server-config=brms-webs/:start(server=brms-webs,blocking=true)"/>
                 </exec>
+            </then>
+        </if>
+        <if>
+            <equals arg1="${org.jboss.processFlow.provision.pfpCore}" arg2="true" />
+            <then>
+                <exec executable="${jboss.home}/bin/jboss-cli.sh" failonerror="${cli.fail.on.error}">
+                    <arg value="--connect"/>
+                    <arg value="--controller=${os.hostname}:${management.port}"/>
+                    <arg value="/server-group=${pfp.core.group}/:start-servers"/>
+                </exec>
+                <echo message="you may find executing the following will be helpful to diagnose your environment :" />
+                <echo message="    curl -X PUT -HAccept:text/plain ${os.hostname}:8330/knowledgeService/kbase               :   refresh kBase in PFP's kSessionService" />
+                <echo message="    curl -X GET -HAccept:text/plain ${os.hostname}:8330/knowledgeService/kbase/content       :   view contents of kbase" />
+                <echo message="    curl -X GET -HAccept:text/plain ${os.hostname}:8330/knowledgeService/workItemHandlers    :   view all registerd workItemHandlers with kSessions" />
             </then>
         </if>
     </target>

@@ -373,6 +373,10 @@
 
     <target name="configure.jboss.modules" >
         <delete dir="${temp.jboss.dir}/modules" />
+        <delete dir="${pfp.module.path}" />
+        <delete dir="${sy.module.path}" />
+        <mkdir dir="${pfp.module.path}" />
+        <mkdir dir="${sy.module.path}" />
         <if>
             <not><available file="${temp.pfp.lib.dir}" type="dir" /></not>
             <then><antcall target="pfp.compile" /></then>

@@ -26,8 +26,8 @@ import java.util.*;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
+import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.inject.Alternative;
-import javax.inject.Singleton;
 import javax.persistence.EntityManager;
 import javax.persistence.Query;
 import org.apache.commons.lang.StringUtils;
@@ -85,7 +85,7 @@ import org.jboss.processFlow.util.LogSystemEventListener;
  *
  *</pre>
  */
-@Singleton
+@ApplicationScoped
 @Alternative
 public class SingleSessionBean extends BaseKnowledgeSessionBean implements IKnowledgeSessionBean {
 
@@ -505,5 +505,13 @@ public class SingleSessionBean extends BaseKnowledgeSessionBean implements IKnow
 
     public void upgradeProcessInstance(long processInstanceId, String processId, Map<String, Long> nodeMapping) {
         WorkflowProcessInstanceUpgrader.upgradeProcessInstance(ksession, processInstanceId, processId, nodeMapping);
+    }
+
+    public Map<String, Object> getActiveProcessInstanceVariables(Long processInstanceId, Integer ksessionId, Boolean disposeKsession) {
+        return this.getActiveProcessInstanceVariables(processInstanceId, ksessionId);
+    }
+
+    public void setProcessInstanceVariables(Long processInstanceId,Map<String, Object> variables, Integer ksessionId,Boolean disposeKsession) {
+        this.setProcessInstanceVariables(processInstanceId, variables, ksessionId);
     }
 }

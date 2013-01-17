@@ -56,7 +56,7 @@ checkHostName() {
     then
         echo "we are online!"
     else
-        echo -en "\n unable to ping $hostName.  check your network settings"
+        echo -en "\n unable to ping $hostName.  ensure that your hostname env variable maps to a valid network interface card"
         exit 1
     fi
 }

@@ -60,6 +60,7 @@ public class KSessionHttp {
     public Response createOrRebuildKnowledgeBaseViaKnowledgeAgentOrBuilder() {
         ResponseBuilder builder = Response.ok();
         try {
+            log.info("createOrRebuildKnowledgeBaseViaKnowledgeAgentOrBuilder() ");
             kProxy.createOrRebuildKnowledgeBaseViaKnowledgeAgentOrBuilder();
         }catch(RuntimeException x){
             builder = Response.status(Status.SERVICE_UNAVAILABLE);
@@ -76,6 +77,20 @@ public class KSessionHttp {
     @Path("/kbase/content")
     public Response printKnowledgeBaseContent() {
         String kBaseContent = kProxy.printKnowledgeBaseContent();
+        ResponseBuilder builder = Response.ok(kBaseContent);
+        return builder.build();
+    }
+    
+    /**
+     * sample usage :
+     *  curl -X GET -HAccept:text/plain $HOSTNAME:8330/knowledgeService/processInstance/variables/1?ksessionId=1
+     *  curl -X GET -HAccept:text/plain http://pfpcore-jbride0.rhcloud.com/knowledgeService/processInstance/variables/1?ksessionId=1
+     */
+    @GET
+    @Path("/processInstance/variables/{pInstanceId: .*}/")
+    public Response printActiveProcessInstanceVariables(@PathParam("pInstanceId")final Long pInstanceId,
+                                                        @QueryParam("ksessionId")final Integer ksessionId){
+        String kBaseContent = kProxy.printActiveProcessInstanceVariables(pInstanceId, ksessionId);
         ResponseBuilder builder = Response.ok(kBaseContent);
         return builder.build();
     }
@@ -110,13 +125,41 @@ public class KSessionHttp {
                                 ) {
         ResponseBuilder builder = Response.ok();
         try {
-        	String[] signalData = signalPayload.split("\\$");
-        	Map<String, String> signalMap = new HashMap<String, String>();
+            String[] signalData = signalPayload.split("\\$");
+            Map<String, String> signalMap = new HashMap<String, String>();
             for(int t = 1; t< signalData.length; t++) {
                 signalMap.put(signalData[t], signalData[t+1]);
                 t++;
             }
             kProxy.signalEvent(signalType, signalMap, pInstanceId, ksessionId);
+        }catch(RuntimeException x){
+            builder = Response.status(Status.SERVICE_UNAVAILABLE);
+        }
+        return builder.build();
+    }
+    
+    /**
+     * purpose      : provide a REST API for invoking kSessionService.completeWorkItem(..) that allows for a payload in the HttpRequest body
+     *                business-central-service REST API does not expose an equivalent function
+     * sample usage :
+     *  curl -X PUT -HAccept:text/plain $HOSTNAME:8330/knowledgeService/rs/process/tokens/1/transition?signalType=test
+     *  curl -X PUT -HAccept:text/plain http://pfpcore-jbride0.rhcloud.com/knowledgeService/rs/process/tokens/1/1/complete
+     */
+    @PUT
+    @Path("/rs/process/tokens/{pInstanceId: .*}/{workItemId: .*}/complete")
+    public Response completeWorkItem(@PathParam("pInstanceId")final Long pInstanceId,
+                                @PathParam("workItemId")final Long workItemId,
+                                final String payload
+                                ) {
+        ResponseBuilder builder = Response.ok();
+        try {
+            String[] signalData = payload.split("\\$");
+            Map<String, Object> signalMap = new HashMap<String, Object>();
+            for(int t = 1; t< signalData.length; t++) {
+                signalMap.put(signalData[t], signalData[t+1]);
+                t++;
+            }
+            kProxy.beanManagedCompleteWorkItem(workItemId, signalMap, pInstanceId, null);
         }catch(RuntimeException x){
             builder = Response.status(Status.SERVICE_UNAVAILABLE);
         }

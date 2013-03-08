@@ -160,7 +160,7 @@ public class CommandDelegate {
     
     public static Map<String, Object> getProcessInstanceVariables(String processInstanceId) {
         try {
-            return ksessionProxy.getActiveProcessInstanceVariables(Long.valueOf(processInstanceId), null);
+            return ksessionProxy.beanManagedGetActiveProcessInstanceVariables(Long.valueOf(processInstanceId), null);
         } catch(RuntimeException x) {
             throw x;
         } catch(Exception x) {
@@ -183,11 +183,11 @@ public class CommandDelegate {
         }
     }
     
-    public static void signalExecution(String executionId, String signalRef, Map<String, String> signalValues) {
-    	try {
-    		ksessionProxy.signalEvent(signalRef, signalValues, Long.parseLong(executionId), null);
-    	}catch(Exception x) {
-    		throw new RuntimeException(x);
-    	}
+    public static void signalExecution(String pInstanceId, String signalRef, Map<String, String> signalValues) {
+        try {
+            ksessionProxy.signalEvent(signalRef, signalValues, Long.parseLong(pInstanceId), null);
+        }catch(Exception x) {
+            throw new RuntimeException(x);
+        }
     }
 }

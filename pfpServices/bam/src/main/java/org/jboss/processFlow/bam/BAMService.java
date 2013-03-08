@@ -28,12 +28,10 @@ import java.util.List;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import javax.annotation.Resource;
-import javax.ejb.EJB;
 import javax.ejb.Remote;
 import javax.ejb.Singleton;
 import javax.ejb.Startup;
 import javax.jms.*;
-import javax.ejb.Remote;
 import javax.persistence.EntityManager;
 import javax.persistence.EntityManagerFactory;
 import javax.persistence.PersistenceUnit;
@@ -89,19 +87,14 @@ public class BAMService implements IBAMService, MessageListener {
     private @Resource UserTransaction uTrnx;
     private @Resource(name="java:/TransactionManager") TransactionManager tMgr;
 
-    // currently using InVM ConnectionFactory
-    // need to test performance & roll-back implications using "java:/JmsXA"
-    @Resource (mappedName = "java:/ConnectionFactory") 
-    private ConnectionFactory cFactory;
+    @Resource (name=MessagingUtil.CONNECTION_FACTORY_JNDI_NAME) ConnectionFactory cFactory;
 
-    @Resource (mappedName = IBAMService.BAM_QUEUE)
-    private Destination queue;
+    //@Resource (mappedName = IBAMService.BAM_QUEUE) Destination queue;
+    //@Resource (name = "jms/processFlow.asyncWorkingMemoryLogger") Destination queue;
+    Destination queue;
 
     @PostConstruct
     public void start() throws Exception {
-        //ConnectionFactory cFactory = MessagingUtil.grabConnectionFactory();
-        //queue = (Destination)MessagingUtil.grabJMSObject(IBAMService.BAM_QUEUE);
-
         connectObj = cFactory.createConnection();
         connectObj.setExceptionListener(new ExceptionListener() {
             public void onException(final JMSException e) {
@@ -109,6 +102,7 @@ public class BAMService implements IBAMService, MessageListener {
             }
         });
 
+        queue = (Destination)MessagingUtil.grabJMSObject(IBAMService.BAM_QUEUE);
         sessionObj = connectObj.createSession(true, Session.AUTO_ACKNOWLEDGE);
         MessageConsumer mConsumer = sessionObj.createConsumer(queue);
         mConsumer.setMessageListener(this);

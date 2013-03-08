@@ -79,7 +79,7 @@ public class TaskManagement implements org.jboss.bpm.console.server.integration.
         if (idRef == null) {
             taskServiceProxy.releaseTask(taskId, userId);
         } else if (idRef.equals(userId)) {
-        	List<String> callerRoles = getCallerRoles();
+            List<String> callerRoles = getCallerRoles();
             taskServiceProxy.claimTask(taskId, idRef, idRef, callerRoles);
         } else {
             taskServiceProxy.delegateTask(taskId, userId, idRef);
@@ -123,7 +123,10 @@ public class TaskManagement implements org.jboss.bpm.console.server.integration.
             List<Status> onlyReserved = Collections.singletonList(Status.Reserved);
             List<TaskSummary> tasks = taskServiceProxy.getAssignedTasks(idRef, onlyReserved, "en-UK");
             for (TaskSummary task: tasks) {
-                result.add(Transform.task(task));
+                // JAB:  needed until jbpm5 supports query by reserved status
+                if (task.getStatus() == Status.Reserved) {
+                    result.add(Transform.task(task));
+                }
             }
             return result;
         }catch(Exception x){
@@ -141,13 +144,13 @@ public class TaskManagement implements org.jboss.bpm.console.server.integration.
             tasks = taskServiceProxy.getTasksAssignedAsPotentialOwnerByStatusByGroup(userId, callerRoles, onlyReady, "en-UK", 0, 10);
             User emptyUser = new User();
             for (TaskSummary task: tasks) {
-            	
-            	/* JA Bride : 21 Sept 2012  : as per
-            		1)  org.jboss.bpm.console.client.task.OpenTasksView.renderUpdate(...)
-            		2)  org.jboss.bpm.console.client.model.TaskRef.initOrUpdateState(...)
-           			actualOwner needs to be either null or empty value 
-           		*/
-            	task.setActualOwner(emptyUser);
+                
+                /* JA Bride : 21 Sept 2012  : as per
+                    1)  org.jboss.bpm.console.client.task.OpenTasksView.renderUpdate(...)
+                    2)  org.jboss.bpm.console.client.model.TaskRef.initOrUpdateState(...)
+                       actualOwner needs to be either null or empty value 
+                */
+                task.setActualOwner(emptyUser);
                 result.add(Transform.task(task));
             }
             return result;

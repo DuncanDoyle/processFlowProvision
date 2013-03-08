@@ -33,6 +33,7 @@ import java.net.ConnectException;
 import java.util.*;
 
 import javax.transaction.UserTransaction;
+import javax.annotation.PreDestroy;
 import javax.persistence.*;
 
 import org.apache.log4j.Logger;
@@ -143,7 +144,7 @@ import org.mvel2.ParserContext;
  *      the gwt-console-server queries the BRMS BAM database for listing of active process instances
  *      
  *     
- *
+ *  22 Jan 2013:  various performance optimizations and general cleanup contributed by Michal Valach.  thank you!
  */
 public class BaseKnowledgeSessionBean {
 
@@ -156,9 +157,10 @@ public class BaseKnowledgeSessionBean {
     protected String droolsResourceScannerInterval = "30";
     protected boolean enableLog = false;
     protected boolean enableKnowledgeRuntimeLogger = true;
-    protected Map<String, Class> programmaticallyLoadedWorkItemHandlers = new HashMap<String, Class>();
+    protected Map<String, Class<?>> programmaticallyLoadedWorkItemHandlers = new HashMap<String, Class<?>>();
 
     protected KnowledgeBase kbase = null;
+    protected KnowledgeAgent kagent = null;
     protected SystemEventListener originalSystemEventListener = null;
     protected DroolsManagementAgent kmanagement = null;
     protected GuvnorConnectionUtils guvnorUtils = null;
@@ -169,7 +171,9 @@ public class BaseKnowledgeSessionBean {
     protected Properties guvnorProps;
     protected String taskCleanUpImpl;
     protected String templateString;
-    protected boolean sessionTemplateInstantiationAlreadyBombed = false;
+    private int sessionTemplateInstantiationAttempts = 0;
+    private Object templateStringLockObj = new Object();
+    private Object sessionTemplateInstantiationLock = new Object();
     
     /* static variable because :
      *   1)  TaskService is a thread-safe object
@@ -182,6 +186,14 @@ public class BaseKnowledgeSessionBean {
 
     protected @PersistenceUnit(unitName=EMF_NAME)  EntityManagerFactory jbpmCoreEMF;
     protected @javax.annotation.Resource UserTransaction uTrnx;
+    
+    @PreDestroy
+    public void destroy() throws Exception {
+        if (kagent != null) {
+            kagent.dispose();
+            kagent = null;
+        }
+    }
     
 
 /******************************************************************************
@@ -223,8 +235,14 @@ public class BaseKnowledgeSessionBean {
     // needs to be invoked AFTER guvnor is available (obviously)
     // setting 'force' parameter to true re-creates an existing kbase
     protected synchronized void createKnowledgeBaseViaKnowledgeAgent(boolean forceRefresh) throws ConnectException{
+        log.info("createOrRebuildKnowledgeBaseViaKnowledgeAgent() forceRefresh = "+forceRefresh);
         if(kbase != null && !forceRefresh)
             return;
+        
+        if(kagent != null) {
+            kagent.dispose();
+            kagent = null;
+        }
 
         // investigate:  List<String> guvnorPackages = guvnorUtils.getBuiltPackageNames();
         // http://ratwateribm:8080/jboss-brms/org.drools.guvnor.Guvnor/package/org.jboss.processFlow/test-pfp-snapshot
@@ -242,10 +260,20 @@ public class BaseKnowledgeSessionBean {
 
         // for polling of guvnor to occur, the polling and notifier services must be started
         ResourceChangeScannerConfiguration sconf = ResourceFactory.getResourceChangeScannerService().newResourceChangeScannerConfiguration();
-        sconf.setProperty( "drools.resource.scanner.interval", droolsResourceScannerInterval);
-        ResourceFactory.getResourceChangeScannerService().configure( sconf );
-        ResourceFactory.getResourceChangeScannerService().start();
-        ResourceFactory.getResourceChangeNotifierService().start();
+        
+        // Do not start change set notifications
+        Integer droolsResourceScannerIntervalValue = -1;
+        try {
+            droolsResourceScannerIntervalValue = Integer.valueOf(droolsResourceScannerInterval);
+        } catch (NumberFormatException nfe) {
+            log.error("DroolsResourceScannerInterval is not an integer: " + droolsResourceScannerInterval, nfe);
+        }
+        if (droolsResourceScannerIntervalValue > 0) {
+            sconf.setProperty( "drools.resource.scanner.interval", droolsResourceScannerInterval);
+            ResourceFactory.getResourceChangeScannerService().configure( sconf );
+            ResourceFactory.getResourceChangeScannerService().start();
+            ResourceFactory.getResourceChangeNotifierService().start();
+        }
         
         KnowledgeAgentConfiguration aconf = KnowledgeAgentFactory.newKnowledgeAgentConfiguration(); // implementation = org.drools.agent.impl.KnowledgeAgentConfigurationImpl
 
@@ -253,11 +281,17 @@ public class BaseKnowledgeSessionBean {
             - will create a single KnowledgeBase and always refresh that same instance
         */
         aconf.setProperty("drools.agent.newInstance", "false");
+        if (droolsResourceScannerIntervalValue < 0) {
+            aconf.setProperty("drools.agent.scanResources", Boolean.FALSE.toString());
+            aconf.setProperty("drools.agent.scanDirectories", Boolean.FALSE.toString());
+            aconf.setProperty("drools.agent.monitorChangeSetEvents", Boolean.FALSE.toString());
+        }
+
 
         /*  -- Knowledge Agent provides automatic loading, caching and re-loading of resources
             -- the knowledge agent can update or rebuild this knowledge base as the resources it uses are changed
         */
-        KnowledgeAgent kagent = KnowledgeAgentFactory.newKnowledgeAgent("Guvnor default", aconf);
+        kagent = KnowledgeAgentFactory.newKnowledgeAgent("Guvnor default", aconf);
         StringReader sReader = guvnorUtils.createChangeSet();
         try {
             guvnorChangeSet = IOUtils.toString(sReader);
@@ -276,8 +310,16 @@ public class BaseKnowledgeSessionBean {
             - a knowledge base is also serializable, allowing for it to be stored
         */
         kbase = kagent.getKnowledgeBase();
+        log.info("createKnowledgeBaseViaKnowledgeAgent() just refreshed kBase via knowledgeAgent");
     }
     
+    /*
+     * intention of this function is to create a knowledgeBase without a strict dependency on guvnor
+     * will still query guvnor for packages but will continue on even if problems communicating with guvnor exists
+     * this function could be of use in those scenarious where guvnor is not accessible
+     * knowledgeBase can subsequently be populated via one of the addProcessToKnowledgeBase(....) functions
+     * in all cases, the knowledgeBase created by this function will NOT be registered with a knowledgeAgent that receives updates from guvnor
+     */
     public void rebuildKnowledgeBaseViaKnowledgeBuilder() {
         guvnorProps = new Properties();
         try {
@@ -334,7 +376,17 @@ public class BaseKnowledgeSessionBean {
         log.info("addProcessToKnowledgeBase() just added the following bpmn2 process definition to the kbase: "+bpmnFile.getName());
     }
     
-    public String getAllProcessesInPackage(String pkgName){
+    public String getAllProcessesInPackage(String pkgName) throws ConnectException{
+        if(!guvnorUtils.guvnorExists()) {
+            StringBuilder sBuilder = new StringBuilder();
+            sBuilder.append(guvnorUtils.getGuvnorProtocol());
+            sBuilder.append("://");
+            sBuilder.append(guvnorUtils.getGuvnorHost());
+            sBuilder.append("/");
+            sBuilder.append(guvnorUtils.getGuvnorSubdomain());
+            sBuilder.append("/rest/packages/");
+            throw new ConnectException("createKnowledgeBase() cannot connect to guvnor at URL : "+sBuilder.toString()); 
+        }
         List<String> processes = guvnorUtils.getAllProcessesInPackage(pkgName);
         StringBuilder sBuilder = new StringBuilder("getAllProcessesInPackage() pkgName = "+pkgName);
         if(processes.isEmpty()){
@@ -381,41 +433,58 @@ public class BaseKnowledgeSessionBean {
     }
     
     protected SessionTemplate newSessionTemplate() {
-        if(sessionTemplateInstantiationAlreadyBombed)
-            return null;
-        
+        //looking for session.templte on local file system
         if(templateString == null){
-            String droolsSessionTemplatePath = System.getProperty(DROOLS_SESSION_TEMPLATE_PATH);
-            if(StringUtils.isNotEmpty(droolsSessionTemplatePath)){
-                File droolsSessionTemplate = new File(droolsSessionTemplatePath);
-                if(!droolsSessionTemplate.exists()) {
-                    throw new RuntimeException("newSessionTemplate() drools session template not found at : "+droolsSessionTemplatePath);
-                }else {
-                    FileInputStream fStream = null;
-                    try {
-                        fStream = new FileInputStream(droolsSessionTemplate);
-                        templateString = IOUtils.toString(fStream);
+            synchronized(templateStringLockObj){
+                if(templateString == null){
+                    String droolsSessionTemplatePath = System.getProperty(DROOLS_SESSION_TEMPLATE_PATH);
+                    if(StringUtils.isNotEmpty(droolsSessionTemplatePath)){
+                        File droolsSessionTemplate = new File(droolsSessionTemplatePath);
+                        if(!droolsSessionTemplate.exists()) {
+                            log.error("newSessionTemplate() drools session template not found at : "+droolsSessionTemplatePath);
+                            sessionTemplateInstantiationAttempts = -1;
+                        }else {
+                            FileInputStream fStream = null;
+                            try {
+                                fStream = new FileInputStream(droolsSessionTemplate);
+                                templateString = IOUtils.toString(fStream);
 
-                    }catch(IOException x){
-                        x.printStackTrace();
-                    }finally {
-                        if(fStream != null) {
-                            try {fStream.close(); }catch(Exception x){x.printStackTrace();}
+                            }catch(IOException x){
+                                x.printStackTrace();
+                            }finally {
+                                if(fStream != null) {
+                                    try {fStream.close(); }catch(Exception x){x.printStackTrace();}
+                                }
+                            }
                         }
+                    }else {
+                        throw new RuntimeException("newSessionTemplate() following property must be defined : "+DROOLS_SESSION_TEMPLATE_PATH);
                     }
                 }
-            }else {
-                throw new RuntimeException("newSessionTemplate() following property must be defined : "+DROOLS_SESSION_TEMPLATE_PATH);
             }
         }
+        if(sessionTemplateInstantiationAttempts == -1)
+            return null;
+        if(sessionTemplateInstantiationAttempts == 0){
+            synchronized(sessionTemplateInstantiationLock){
+                if(sessionTemplateInstantiationAttempts == -1)
+                    return null;
+                return parseSessionTemplateString();
+            }
+        }
+        return parseSessionTemplateString();
+    }
+    private SessionTemplate parseSessionTemplateString() {
         ParserConfiguration pconf = new ParserConfiguration();
         pconf.addImport("SessionTemplate", SessionTemplate.class);
         ParserContext context = new ParserContext(pconf);
         Serializable s = MVEL.compileExpression(templateString.trim(), context);
         try {
-            return (SessionTemplate)MVEL.executeExpression(s);
+            SessionTemplate sTemplate = (SessionTemplate)MVEL.executeExpression(s);
+            sessionTemplateInstantiationAttempts = 1;
+            return sTemplate;
         }catch(Throwable x){
-            sessionTemplateInstantiationAlreadyBombed = true;
+            sessionTemplateInstantiationAttempts = -1;
             x.printStackTrace();
             log.error("newSessionTemplate() following exception thrown \n\t"+x.getLocalizedMessage()+"\n : with session template string = \n\n"+templateString);
             return null;
@@ -643,7 +712,7 @@ public class BaseKnowledgeSessionBean {
         // 2) very important that a unique 'Environment' is created per StatefulKnowledgeSession
         Environment ksEnv = createKnowledgeSessionEnvironment();
 
-        // Nick: always instantiate new ksconfig to make it threadlocal bo bapass the ConcurrentModificationExcepotion
+        // Nick: always instantiate new ksconfig to make it threadlocal to bypass the ConcurrentModificationExcepotion
         KnowledgeSessionConfiguration ksConfig = KnowledgeBaseFactory.newKnowledgeSessionConfiguration(ksconfigProperties);
 
         // 3) instantiate StatefulKnowledgeSession
@@ -661,9 +730,6 @@ public class BaseKnowledgeSessionBean {
                 createKnowledgeBaseViaKnowledgeAgentOrBuilder();
             for (KnowledgePackage kpackage: kbase.getKnowledgePackages()) {
                 for(Process processObj : kpackage.getProcesses()){
-                    Long pVersion = 0L;
-                    if(!StringUtils.isEmpty(processObj.getVersion()))
-                        pVersion = Long.parseLong(processObj.getVersion());
                     result.add(getProcess(processObj.getId()));
                 }
             }
@@ -676,8 +742,13 @@ public class BaseKnowledgeSessionBean {
                 createKnowledgeBaseViaKnowledgeAgentOrBuilder();
             Process processObj = kbase.getProcess(processId);
             Long pVersion = 0L;
-            if(!StringUtils.isEmpty(processObj.getVersion()))
-                pVersion = Long.parseLong(processObj.getVersion());
+            if(!StringUtils.isEmpty(processObj.getVersion())) {
+                try {
+                    pVersion = Long.parseLong(processObj.getVersion());
+                } catch(NumberFormatException x) {
+                    log.error("getProcess() processId = "+processId+" : process versions must be of type long. the following is invalid: "+processObj.getVersion());
+                }
+            }
             SerializableProcessMetaData spObj = new SerializableProcessMetaData(processObj.getId(), processObj.getName(), pVersion, processObj.getPackageName());
             if (processObj instanceof org.drools.definition.process.WorkflowProcess) {
                 Node[] nodes = ((WorkflowProcess)processObj).getNodes();
@@ -750,13 +821,17 @@ public class BaseKnowledgeSessionBean {
         return sBuffer.toString();
     }
     
+    private static final List<Integer> NON_ROLLBACK_TX = Arrays.asList(new Integer[]{
+            javax.transaction.Status.STATUS_NO_TRANSACTION,
+            javax.transaction.Status.STATUS_ROLLEDBACK
+    });
     protected void rollbackTrnx() {
         try {
-            if(uTrnx.getStatus() == javax.transaction.Status.STATUS_ACTIVE)
+            if(!NON_ROLLBACK_TX.contains(uTrnx.getStatus())) {
                 uTrnx.rollback();
-        }catch(Exception e) {
-            e.printStackTrace();
+            }
+        } catch(Exception e) {
+            log.error(e.getMessage() + " - at: " + (e.getStackTrace() == null ? null : e.getStackTrace()[0]));
         }
     }
-  
 }
